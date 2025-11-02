@@ -1,0 +1,51 @@
+# Python cache and compiled files
+__pycache__/
+*.py[cod]
+*.so
+
+# Virtual Environments
+.venv/
+venv/
+env/
+
+# OS-specific metadata
+.DS_Store
+Thumbs.db
+
+# IDE configuration
+.idea/
+.vscode/
+*.sublime-*
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints
+
+# -------------------------------------------------------------------
+# CRITICAL: Research-specific ignores
+# -------------------------------------------------------------------
+
+# Data: README in the 'data/' folder describes how to obtain the data
+data/raw/
+data/processed/
+data/*.csv
+data/*.parquet
+data/*.zip
+data/*.npy
+
+# Experiments: Never commit trained models, logs, or results.
+# These are "artifacts" of a run, not source code.
+experiments/
+*.log
+*.pth
+*.pt
+*.ckpt
+*.h5
+*.model
+
+# Secrets: Never commit credentials
+.env
+*.env
+secrets.yml
+
+# Reports or papers
+*.pdf
