@@ -68,7 +68,7 @@ class DataHandler:
             labels (pd.DataFrame): DataFrame containing new label columns.
         """
         self.dataframe = self.dataframe.join(labels)
-        self.label_cols.update(labels.columns.tolist())
+        self.label_cols.update(labels.columns.tolist() if isinstance(labels, pd.DataFrame) else [labels.name])
 
     def get_predictions(self) -> pd.DataFrame:
         """
@@ -109,7 +109,7 @@ class DataHandler:
         """
         self.dataframe = self.dataframe.join(new_data)
 
-    def copy(self, dataframe: pd.DataFrame = None, feature_cols = None, label_cols = None):
+    def copy(self, dataframe: pd.DataFrame = None, feature_cols = None, label_cols = None, prediction_cols = None):
         """
         Creates a copy of the DataHandler.
         """
@@ -119,5 +119,7 @@ class DataHandler:
             feature_cols = list(self.feature_cols)
         if label_cols is None:
             label_cols = list(self.label_cols)
+        if self.prediction_cols is not None:
+            prediction_cols = list(self.prediction_cols)
         
-        return DataHandler(dataframe, feature_cols = feature_cols, label_cols = label_cols)
+        return DataHandler(dataframe, feature_cols = feature_cols, label_cols = label_cols, prediction_cols = prediction_cols)
