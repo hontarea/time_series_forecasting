@@ -1,4 +1,5 @@
 import pandas as pd
+import copy
 from src.datawrapper.DataHandler import DataHandler
 
 class DataWrapper:
@@ -96,3 +97,38 @@ class DataWrapper:
             new_data (pd.DataFrame): DataFrame containing new columns to add.
         """
         self.data_handler.add_columns(new_data)
+
+    def get_columns(self, column_names) -> pd.DataFrame:
+        """
+        Returns specified columns from the underlying DataFrame in the DataHandler.
+        """
+        return self.data_handler.get_columns(column_names)
+    
+    def empty(self):
+        """
+        Returns whether the underlying DataFrame in the DataHandler is empty.
+        """
+        return self.get_dataframe().empty
+    
+    def deepcopy(
+        self,
+        dataframe: pd.DataFrame = None,
+        feature_cols=None,
+        label_cols=None,
+    ):
+        """
+        Returns an independent copy of this wrapper and its underlying DataHandler.
+        """
+        new_handler = self.data_handler.copy(
+            dataframe=dataframe,
+            feature_cols=feature_cols,
+            label_cols=label_cols,
+        )
+        new = self.__class__(new_handler)
+
+        for attribute_key, value in self.__dict__.items():
+            if attribute_key == "data_handler":
+                continue
+            setattr(new, attribute_key, copy.deepcopy(value))
+
+        return new
