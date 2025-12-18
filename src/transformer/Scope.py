@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
-from datawrapper.DataWrapper import DataWrapper
-from utils.AttributeSetter import AttributeSetter
+from src.datawrapper.DataWrapper import DataWrapper
+from src.utils.AttributeSetter import AttributeSetter
 
 import numpy as np
 class Scope(ABC):
@@ -41,13 +41,12 @@ class WindowScope(Scope):
     default_parameters = { 
         "column": "open_time",
         "start_value": 0,
-        "end_value": np.inf(), 
+        "end_value": np.inf,
         "step_size": 1,
         "window_size": 10
     }
 
     def __init__(self, wrapper: DataWrapper = None, parameters=None):
-        # Handle default parameters merge
         params = self.default_parameters.copy()
         if parameters:
             params.update(parameters)
@@ -83,9 +82,9 @@ class WindowScope(Scope):
         self.window_size = self.window_size_initial
 
     def shift(self):
-        pass
+        self.start_value += self.step_size
     def isInScope(self):
-        return True
+        return (self.start_value + self.window_size) <= self.end_value
 
 class ScopeExpander(WindowScope):
     """
