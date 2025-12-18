@@ -52,7 +52,7 @@ class DataHandler:
             on (str or list, optional): Column(s) to join on. If None, indexes are used.
         """
         self.dataframe = self.dataframe.join(features, on = on) if on else self.dataframe.join(features)
-        self.feature_cols.update(features.columns.tolist())
+        self.feature_cols.update(features.columns.tolist() if isinstance(features, pd.DataFrame) else [features.name])
 
     def get_labels(self) -> pd.DataFrame:
         """
