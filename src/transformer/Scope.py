@@ -19,7 +19,7 @@ class Scope(ABC):
         pass
 
     @abstractmethod
-    def isInScope(self):
+    def is_in_scope(self):
         """Check if the current is within the valid bounds"""
         pass
 
@@ -62,14 +62,14 @@ class WindowScope(Scope):
         elif self.wrapper is not None and self.column in self.wrapper.get_dataframe().columns:
             self.start_value = self.wrapper.get_dataframe()[self.column].min()
         else:
-            self.start_value = 0
+            raise ValueError("start value must be specified in parameters or derivable from wrapper data.")
 
         if "end_value" in self.parameters:
             self.end_value = self.parameters["end_value"]
         elif self.wrapper is not None and self.column in self.wrapper.get_dataframe().columns:
             self.end_value = self.wrapper.get_dataframe()[self.column].max()
         else:
-            self.end_value = 100
+            raise ValueError("end value must be specified in parameters or derivable from wrapper data.")
 
         self.start_value_initial = self.start_value
         self.window_size_initial = self.window_size
@@ -83,7 +83,7 @@ class WindowScope(Scope):
 
     def shift(self):
         self.start_value += self.step_size
-    def isInScope(self):
+    def is_in_scope(self):
         return (self.start_value + self.window_size) <= self.end_value
 
 class ScopeExpander(WindowScope):
@@ -94,7 +94,7 @@ class ScopeExpander(WindowScope):
     def shift(self):
         self.window_size += self.step_size
 
-    def isInScope(self):
+    def is_in_scope(self):
         return (self.start_value + self.window_size) <= self.end_value
 
 class ScopeShifter(WindowScope):
@@ -105,7 +105,7 @@ class ScopeShifter(WindowScope):
     def shift(self):
         self.start_value += self.step_size
 
-    def isInScope(self):
+    def is_in_scope(self):
         return (self.start_value + self.window_size) <= self.end_value
     
 class TestingWindowScope(WindowScope):
@@ -143,7 +143,7 @@ class TestingWindowScope(WindowScope):
     def shift(self):
         self.sync_with_training()
 
-    def isInScope(self):
-        train_valid = self.training_window_scope.isInScope()
+    def is_in_scope(self):
+        train_valid = self.training_window_scope.is_in_scope()
         test_fits = (self.start_value + self.window_size) <= self.end_value
         return train_valid and test_fits
