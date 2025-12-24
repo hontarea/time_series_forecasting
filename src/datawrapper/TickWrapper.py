@@ -6,7 +6,6 @@ class TickWrapper(DataWrapper):
     """
     Specialized DataWrapper for handling tick data in financial time series.
     """
-    date_column = 'open_time'
     open_column = 'open'
     high_column = 'high'
     low_column = 'low'

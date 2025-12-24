@@ -25,6 +25,27 @@ class DataWrapper:
             data_handler (DataHandler): The underlying data handler.
         """
         self.data_handler = data_handler
+        self._ensure_datetime()
+
+    def _ensure_datetime(self):
+        """
+        Validates, converts, and sorts the time column to support TimeWindowScope.
+        """
+        #  Default name of time column is 'open_time'
+        time_col = 'open_time'
+
+        if time_col not in self.get_dataframe().columns:
+            raise ValueError(f"Time column '{time_col}' not found in dataset.")
+
+        if not pd.api.types.is_datetime64_any_dtype(self.get_dataframe()[time_col]):
+            try:
+                self.set_dataframe(self.get_dataframe().copy())
+                self.get_dataframe()[time_col] = pd.to_datetime(self.get_dataframe()[time_col])
+                
+            except Exception as e:
+                raise ValueError(f"Could not parse time column '{time_col}': {e}")
+        self.get_dataframe().sort_values(by=time_col, ascending=True, inplace=True, ignore_index=True)
+
 
     def get_dataframe(self) -> pd.DataFrame:
         """
@@ -68,6 +89,10 @@ class DataWrapper:
         features = pd.read_csv(path_to_csv, index_col = index)
         self.add_features(features, on = on)
 
+    def get_feature_columns(self):
+        """Returns a list of feature column names."""
+        return list(self.data_handler.feature_cols)
+
     def get_labels(self) -> pd.DataFrame:
         """
         Returns the label columns DataFrame from the DataHandler.
@@ -82,6 +107,11 @@ class DataWrapper:
             labels (pd.DataFrame): DataFrame containing new label columns.
         """
         self.data_handler.add_labels(labels)
+
+    def get_label_columns(self):
+        """Returns a list of label column names."""
+        return list(self.data_handler.label_cols)
+
     
     def get_predictions(self) -> pd.DataFrame:
         """
@@ -132,3 +162,11 @@ class DataWrapper:
             setattr(new, attribute_key, copy.deepcopy(value))
 
         return new
+    def _ensure_datetime(self):
+        """Ensures the time column is proper datetime format."""
+        col = self.get_feature_columns().get('open_time', 'open_time') 
+        if col in self.data.columns:
+            if not pd.api.types.is_datetime64_any_dtype(self.data[col]):
+                self.data[col] = pd.to_datetime(self.data[col])
+            
+            self.data.sort_values(by=col, inplace=True)

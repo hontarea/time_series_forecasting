@@ -1,5 +1,5 @@
-from datawrapper.DataWrapper import DataWrapper
-from transformer.Scope import Scope, TestingWindowScope
+from src.datawrapper.DataWrapper import DataWrapper
+from src.transformer.Scope import Scope, TestingWindowScope
 
 class DataSelector:
     """
@@ -36,12 +36,18 @@ class DataSelector:
     def get_train_data(self):
         """Return the features for current training window"""
         start, end = self.training_scope.current_state()
-        return self.wrapper.get_features().iloc[start:end]
+        sliced_data = self.wrapper.get_dataframe().iloc[start:end].copy()
+        return DataWrapper(self.wrapper.data_handler.__class__(sliced_data, 
+                                                               feature_cols=self.wrapper.get_feature_columns(),
+                                                               label_cols=self.wrapper.get_label_columns()))
 
     def get_test_data(self):
         """Return the labels for current testing window"""
         start, end = self.testing_scope.current_state()
-        return self.wrapper.get_labels().iloc[start:end]
+        sliced_data = self.wrapper.get_dataframe().iloc[start:end].copy()
+        return DataWrapper(self.wrapper.data_handler.__class__(sliced_data, 
+                                                              feature_cols=self.wrapper.get_feature_columns(), 
+                                                              label_cols=self.wrapper.get_label_columns()))
 
     def current_state_info(self):
         """Debugging helper: returns indices of current windows"""

@@ -20,7 +20,7 @@ class Model:
         **kwargs : dict
             Additional keyword arguments for model configuration.
         """
-        self._inti_paramas = self._get_init_params()
+        self._init_params = self._get_init_params()
 
     def _get_init_params(self) -> dict:
         """
@@ -67,7 +67,7 @@ class Model:
         wrapper : object
             An object that contains model parameters as attributes.
         """
-        for param in self._inti_paramas.keys():
+        for param in self._init_params.keys():
             if hasattr(wrapper, param):
                 setattr(self, param, getattr(wrapper, param))
     def reset_state(self):
@@ -106,4 +106,4 @@ class Model:
         """
         Log the model's parameters to MLFlowTracker.
         """
-        MLFlowTracker.log_params(self._inti_paramas)
+        MLFlowTracker.log_params(self._init_params)

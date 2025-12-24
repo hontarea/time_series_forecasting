@@ -1,12 +1,11 @@
 from abc import ABC, abstractmethod
 from src.datawrapper.DataWrapper import DataWrapper
 from src.utils.AttributeSetter import AttributeSetter
-
 import numpy as np
+
 class Scope(ABC):
     """
-    Abstract base class for data segmentation. Defines the interface and shared initialization logic
-    for all scope implementations.
+    Abstract base class for data segmentation.
     """
     def __init__(self, wrapper: DataWrapper = None, parameters=None):
         self.wrapper = wrapper 
@@ -15,35 +14,32 @@ class Scope(ABC):
 
     @abstractmethod
     def shift(self):
-        """Move the scope forward"""
         pass
 
     @abstractmethod
     def is_in_scope(self):
-        """Check if the current is within the valid bounds"""
         pass
 
     @abstractmethod
     def reset_state(self):
-        """Reset the scope to its initial state"""
         pass
 
     def current_state(self):
-        """Get the current state (start, end)"""
+        """Get the current state (start_index, end_index)"""
+        # Ensure we return integers for iloc slicing
         if hasattr(self, 'start_value') and hasattr(self, 'window_size'):
-            return self.start_value, self.start_value + self.window_size
+            return int(self.start_value), int(self.start_value + self.window_size)
         return None
 
 class WindowScope(Scope):
     """
-    Implements a sliding window scope for segmenting time series data.
+    Implements a sliding window scope based on DATAFRAME INDICES.
     """
     default_parameters = { 
-        "column": "open_time",
-        "start_value": 0,
-        "end_value": np.inf,
-        "step_size": 1,
-        "window_size": 10
+        "start_value": 0,    # Default to first row
+        "step_size": 1,      # Move 1 row at a time
+        "window_size": 10    # 10 rows per window
+        # Removed "column" and "end_value" defaults as they depend on data
     }
 
     def __init__(self, wrapper: DataWrapper = None, parameters=None):
@@ -53,43 +49,41 @@ class WindowScope(Scope):
             
         super().__init__(wrapper, params)
 
-        self.column = self.parameters.get("column", "open_time")
         self.step_size = self.parameters.get("step_size", 1)
         self.window_size = self.parameters.get("window_size", 10)
 
+        # FIX 1: Start Value is an Index (0), not a timestamp
         if "start_value" in self.parameters:
             self.start_value = self.parameters["start_value"]
-        elif self.wrapper is not None and self.column in self.wrapper.get_dataframe().columns:
-            self.start_value = self.wrapper.get_dataframe()[self.column].min()
         else:
-            raise ValueError("start value must be specified in parameters or derivable from wrapper data.")
+            self.start_value = 0
 
+        # FIX 2: End Value is the Length of the Dataframe (Max Index)
         if "end_value" in self.parameters:
             self.end_value = self.parameters["end_value"]
-        elif self.wrapper is not None and self.column in self.wrapper.get_dataframe().columns:
-            self.end_value = self.wrapper.get_dataframe()[self.column].max()
+        elif self.wrapper is not None:
+            # This ensures the loop stops exactly at the last row
+            self.end_value = len(self.wrapper.get_dataframe())
         else:
-            raise ValueError("end value must be specified in parameters or derivable from wrapper data.")
+            self.end_value = np.inf # Only if no data is provided (dangerous)
 
         self.start_value_initial = self.start_value
         self.window_size_initial = self.window_size
 
     def reset_state(self):
-        """
-        Reset the scope to its initial state
-        """
         self.start_value = self.start_value_initial
         self.window_size = self.window_size_initial
 
     def shift(self):
         self.start_value += self.step_size
+
     def is_in_scope(self):
+        # Stop if the END of the window exceeds the dataframe length
         return (self.start_value + self.window_size) <= self.end_value
 
 class ScopeExpander(WindowScope):
     """
     Expands the current scope (Anchored Walk Forward).
-    Start remains fixed, window size grows.
     """
     def shift(self):
         self.window_size += self.step_size
@@ -100,7 +94,6 @@ class ScopeExpander(WindowScope):
 class ScopeShifter(WindowScope):
     """
     Shifts the current scope forward (Rolling Window).
-    Start moves forward, window size stays fixed.
     """
     def shift(self):
         self.start_value += self.step_size
@@ -116,34 +109,38 @@ class TestingWindowScope(WindowScope):
     init_parameters = {'testing_window_size': 1}
 
     def __init__(self, training_window_scope: WindowScope, parameters=None, **kwargs):
+        # Inherit parameters but override with testing specific ones
         params = self.init_parameters.copy()
-        if parameters and self.name in parameters:
-             params.update(parameters[self.name])
-        elif parameters:
-             params.update(parameters)
+        if parameters:
+             # Check if parameters are nested under the class name or flat
+             params.update(parameters.get(self.name, parameters))
 
         super().__init__(wrapper=training_window_scope.wrapper, parameters=params, **kwargs)
         
         self.training_window_scope = training_window_scope
         self.testing_window_size = params.get('testing_window_size', 1)
         
+        # Ensure we share the same boundary as the training scope
+        self.end_value = self.training_window_scope.end_value
+        
         self.sync_with_training()
 
     def sync_with_training(self):
         """
-        Set testing window parameters relative to the training window.
+        Aligns the test window to start immediately after the training window.
         """
+        # Test Start = Training Start + Training Length
         self.start_value = self.training_window_scope.start_value + self.training_window_scope.window_size 
-        
         self.window_size = self.testing_window_size
-        
         self.step_size = self.training_window_scope.step_size
-        self.end_value = self.training_window_scope.end_value
 
     def shift(self):
         self.sync_with_training()
 
     def is_in_scope(self):
+        # The loop is valid only if:
+        # 1. The training window is valid
+        # 2. AND the testing window fits inside the data
         train_valid = self.training_window_scope.is_in_scope()
         test_fits = (self.start_value + self.window_size) <= self.end_value
         return train_valid and test_fits
