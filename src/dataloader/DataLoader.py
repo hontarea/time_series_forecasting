@@ -15,7 +15,7 @@ class DataLoader:
             prediction_cols = None
 
             # Filter columns to only include relevant ones
-            df = df[["open_time"] + feature_cols]
+            df = df[["open_time_iso"] + feature_cols]
 
             data_handler = DataHandler(
                 dataframe=df,
