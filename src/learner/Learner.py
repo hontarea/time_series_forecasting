@@ -35,7 +35,9 @@ class Learner:
             self.trainer.train(dataset)
 
     def test(self, dataset: DataWrapper) -> pd.DataFrame:
-        """Test the model and return predictions."""
+        """
+        Test the model and return predictions.
+        """
         if self.tester and not dataset.get_dataframe().empty:
             return self.tester.test(dataset)
         return pd.DataFrame()
@@ -109,31 +111,36 @@ class UpdatingLearner(Learner):
         """
         The Walk-Forward engine.
         """
-        all_predictions = []
+        all_predictions = pd.DataFrame()
         
-        # Reset the selector to ensure we start from the initial window
         self.data_selector.reset()
 
-        # Iterate while there are valid train/test windows left in the dataset
-        while self.data_selector.is_last_window():
+        while True:
             train_data = self.data_selector.get_train_data()
             test_data = self.data_selector.get_test_data()
+
+            # print(self.data_selector.current_state_info())
             
             if train_data.get_dataframe().empty or test_data.get_dataframe().empty:
                 break
                 
-            # Retrain model on the new training window
             self.train(train_data)
-            
-            # Predict on the new testing window
             fold_predictions = self.test(test_data)
-            all_predictions.append(fold_predictions)
+
+            # print(f"{fold_predictions.shape} predictions generated for current window.")
+            # print(f"{test_data.get_dataframe().shape} test samples processed for current window.")
+
+            predictions = pd.concat([test_data.get_dataframe()[['open_time_iso', 'log_return']], fold_predictions], axis=1, ignore_index=True)
+            predictions.columns = ['open_time_iso', 'log_return', 'prediction']
+            # print(f"{predictions.shape} total items (timestamps + predictions) for current window.")
+
+            all_predictions = pd.concat([all_predictions, predictions])
+
+            # print(test_data.get_dataframe())
             
-            # Slide/Expand the windows forward
+            if self.data_selector.is_last_window():
+                break
+            
             self.data_selector.update()
             
-        if all_predictions:
-            # Combine all windows into a single continuous time series of predictions
-            return pd.concat(all_predictions).sort_index()
-            
-        return pd.DataFrame()
+        return all_predictions

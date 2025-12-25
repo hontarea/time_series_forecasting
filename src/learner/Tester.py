@@ -38,7 +38,6 @@ class Tester:
                 raise ValueError("Input features contain NaN values. Please handle missing data before testing.")
             predictions = self.model.predict(features)
 
-            #  Check dimensions before accessing shape[1]
             if predictions.ndim > 1 and predictions.shape[1] > 1:
                 columns = self.model.scikit_model.classes_
             else:
@@ -49,4 +48,3 @@ class Tester:
         else:
             predictions = self.model.predict(features)
             return pd.DataFrame(index=data_wrapper.get_dataframe().index, data=predictions)
-
