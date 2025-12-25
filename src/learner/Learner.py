@@ -70,7 +70,6 @@ class Learner:
         High-level entry point. Executes the 'run' logic and merges results 
         back into a DataWrapper.
         """
-        # Execute the training/testing logic (single fold or walk-forward)
         results_df = self.run()
         
         if results_df.empty:
@@ -78,17 +77,14 @@ class Learner:
             
         # Remove any potential overlaps in the prediction index
         results_df = results_df[~results_df.index.duplicated(keep='first')]
-        
-        # Create a new wrapper to hold the results
-        # We use deepcopy to ensure the original input wrapper remains pristine
+
         pwrapper = wrapper.deepcopy()
         
         if self.last:
-            # Final output: These are the actual Buy/Sell/Price predictions
+            # These are the actual predictions
             pwrapper.add_predictions(results_df)
         else:
-            # Intermediate step: These predictions will be used as features 
-            # for a meta-model
+            # These predictions will be used as features for a meta-model
             pwrapper.add_features(results_df)
             
         return pwrapper
@@ -142,5 +138,5 @@ class UpdatingLearner(Learner):
                 break
             
             self.data_selector.update()
-            
+        all_predictions.reset_index(drop=True, inplace=True)
         return all_predictions
