@@ -8,7 +8,8 @@ class DataWrapper:
     specialized wrappers that add domain-specific logic.
     """
     
-    date_column = 'Date'
+    #  Default name of time column is 'open_time_iso'
+    time_col = 'open_time_iso'
 
     # Variables will be overridden in specialized wrappers
     open_column = None
@@ -31,21 +32,18 @@ class DataWrapper:
         """
         Validates, converts, and sorts the time column to support TimeWindowScope.
         """
-        #  Default name of time column is 'open_time'
-        time_col = 'open_time'
 
-        if time_col not in self.get_dataframe().columns:
-            raise ValueError(f"Time column '{time_col}' not found in dataset.")
+        if self.time_col not in self.get_dataframe().columns:
+            raise ValueError(f"Time column '{self.time_col}' not found in dataset.")
 
-        if not pd.api.types.is_datetime64_any_dtype(self.get_dataframe()[time_col]):
+        if not pd.api.types.is_datetime64_any_dtype(self.get_dataframe()[self.time_col]):
             try:
                 self.set_dataframe(self.get_dataframe().copy())
-                self.get_dataframe()[time_col] = pd.to_datetime(self.get_dataframe()[time_col])
+                self.get_dataframe()[self.time_col] = pd.to_datetime(self.get_dataframe()[self.time_col])
                 
             except Exception as e:
-                raise ValueError(f"Could not parse time column '{time_col}': {e}")
-        self.get_dataframe().sort_values(by=time_col, ascending=True, inplace=True, ignore_index=True)
-
+                raise ValueError(f"Could not parse time column '{self.time_col}': {e}")
+        self.get_dataframe().sort_values(by=self.time_col, ascending=True, inplace=True, ignore_index=True)
 
     def get_dataframe(self) -> pd.DataFrame:
         """
@@ -111,7 +109,13 @@ class DataWrapper:
     def get_label_columns(self):
         """Returns a list of label column names."""
         return list(self.data_handler.label_cols)
-
+    
+    def add_predictions(self, predictions):
+        """Delegate the call to the internal data handler"""
+        if hasattr(self.data_handler, 'add_predictions'):
+            self.data_handler.add_predictions(predictions)
+        else:
+            raise AttributeError(f"Underlying {type(self.data_handler).__name__} has no 'add_predictions' method.")
     
     def get_predictions(self) -> pd.DataFrame:
         """
@@ -162,11 +166,3 @@ class DataWrapper:
             setattr(new, attribute_key, copy.deepcopy(value))
 
         return new
-    def _ensure_datetime(self):
-        """Ensures the time column is proper datetime format."""
-        col = self.get_feature_columns().get('open_time', 'open_time') 
-        if col in self.data.columns:
-            if not pd.api.types.is_datetime64_any_dtype(self.data[col]):
-                self.data[col] = pd.to_datetime(self.data[col])
-            
-            self.data.sort_values(by=col, inplace=True)
