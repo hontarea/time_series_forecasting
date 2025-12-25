@@ -23,10 +23,10 @@ class TickWrapper(DataWrapper):
 
     def compute_log_return(self):
         """
-        Computes the logarithmic returns of the open prices.
+        Computes the logarithmic returns of the close prices.
         """
-        open_price_col = self.get_dataframe()[self.open_column]
-        log_return = np.log1p(open_price_col / open_price_col.shift(1)).shift(-1).rename('log_return')
+        close_price_col = self.get_dataframe()[self.close_column]
+        log_return = np.log(close_price_col / close_price_col.shift(1)).shift(-1).rename('log_return')
         self.data_handler.add_labels(log_return)
         self.get_dataframe().dropna(inplace=True)
         self.get_dataframe().reset_index(drop=True, inplace=True)
