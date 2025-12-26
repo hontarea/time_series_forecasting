@@ -54,6 +54,16 @@ class DataHandler:
         self.dataframe = self.dataframe.join(features, on = on) if on else self.dataframe.join(features)
         self.feature_cols.update(features.columns.tolist() if isinstance(features, pd.DataFrame) else [features.name])
 
+    def remove_features(self, cols):
+        """
+        Removes specified feature columns from the DataFrame and updates the feature columns set.
+
+        Args:
+            cols (list): List of column names to remove from features.
+        """
+        self.dataframe = self.dataframe.drop(columns=cols)
+        self.feature_cols.difference_update(cols)
+
     def get_labels(self) -> pd.DataFrame:
         """
         Returns a DataFrame containing only the label columns.

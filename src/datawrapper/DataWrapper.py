@@ -87,6 +87,17 @@ class DataWrapper:
         features = pd.read_csv(path_to_csv, index_col = index)
         self.add_features(features, on = on)
 
+    def remove_features(self, cols):
+        """
+        Removes specified feature columns from the DataFrame and updates the feature columns set.
+
+        Args:
+            cols (list): List of column names to remove from features.
+        """
+        df = self.data_handler.get_dataframe().drop(columns=cols)
+        self.data_handler.set_dataframe(df)
+        self.data_handler.feature_cols.difference_update(cols)
+
     def get_feature_columns(self):
         """Returns a list of feature column names."""
         return list(self.data_handler.feature_cols)
