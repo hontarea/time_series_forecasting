@@ -43,7 +43,7 @@ class DataWrapper:
                 
             except Exception as e:
                 raise ValueError(f"Could not parse time column '{self.time_col}': {e}")
-        self.get_dataframe().sort_values(by=self.time_col, ascending=True, inplace=True, ignore_index=True)
+        self.get_dataframe().sort_values(by=self.time_col, ascending=True, inplace=True, ignore_index=False)
 
     def get_dataframe(self) -> pd.DataFrame:
         """
