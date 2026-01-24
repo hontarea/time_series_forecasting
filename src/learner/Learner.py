@@ -28,6 +28,16 @@ class Learner:
             self.trainer.set_model_params(model_params)
         if self.tester:
             self.tester.set_model_params(model_params)
+            
+    def reset_state(self):
+        """Reset the internal state of the trainer."""
+        if self.trainer:
+            self.trainer.reset_state()
+    
+    def update(self):
+        """Advance the data selector to the next window."""
+        if self.data_selector:
+            self.data_selector.update()
 
     def train(self, dataset: DataWrapper):
         """Train the model using the provided dataset wrapper."""
@@ -42,16 +52,6 @@ class Learner:
             return self.tester.test(dataset)
         return pd.DataFrame()
     
-    def reset_state(self):
-        """Reset the internal state of the trainer (e.g., clear model weights)."""
-        if self.trainer:
-            self.trainer.reset_state()
-    
-    def update(self):
-        """Advance the data selector to the next window."""
-        if self.data_selector:
-            self.data_selector.update()
-
     def run(self) -> pd.DataFrame:
         """
         Executes a single train-test cycle based on the CURRENT state of the selector.
@@ -65,34 +65,34 @@ class Learner:
         self.train(train_data)
         return self.test(test_data)
     
-    def compute(self, wrapper: DataWrapper) -> DataWrapper:
+    def compute(self) -> DataWrapper:
         """
-        High-level entry point. Executes the 'run' logic and merges results 
-        back into a DataWrapper.
+        High-level entry point used by Optimizer. 
+        Executes the 'run' logic and merges results back into a DataWrapper.
         """
+        wrapper = self.data_wrapper
+        # 1. Generate predictions (Single fold or Walk-Forward)
         results_df = self.run()
         
         if results_df.empty:
             return wrapper
             
-        # Remove any potential overlaps in the prediction index
-        results_df = results_df[~results_df.index.duplicated(keep='first')]
+        # 2. Clean up duplicates if the sliding windows overlapped
+        results_df = results_df[~results_df.index.duplicated(keep='last')]
 
+        # 3. Create a deep copy to avoid modifying the original data during optimization trials
         pwrapper = wrapper.deepcopy()
         
-        if self.last:
-            # These are the actual predictions
-            pwrapper.add_predictions(results_df)
-        else:
-            # These predictions will be used as features for a meta-model
-            pwrapper.add_features(results_df)
+
+        pwrapper.add_predictions(results_df)
+        pwrapper.get_dataframe().dropna(inplace=True)
             
         return pwrapper
-    
+
 class UpdatingLearner(Learner):
     """
-    Implements Walk-Forward Validation. Iteratively trains and tests 
-    as the window moves across the dataset.
+    Implements Walk-Forward Validation. 
+    Iteratively trains and tests as the window moves across the dataset.
     """
     def __init__(self, 
                  trainer: Trainer = None, 
@@ -100,43 +100,47 @@ class UpdatingLearner(Learner):
                  data_wrapper: DataWrapper = None, 
                  data_selector: DataSelector = None,
                  **kwargs):
-        # By default, we assume UpdatingLearner is the last step of the backtest
         super().__init__(trainer, tester, data_wrapper, data_selector, is_last=True, **kwargs)
 
     def run(self) -> pd.DataFrame:
         """
         The Walk-Forward engine.
+        Returns a DataFrame of predictions aligned with the original dataset index.
         """
-        all_predictions = pd.DataFrame()
+        all_predictions = []
         
+        # Ensure we start from the beginning of the timeline
         self.data_selector.reset()
 
         while True:
             train_data = self.data_selector.get_train_data()
             test_data = self.data_selector.get_test_data()
-
-            # print(self.data_selector.current_state_info())
             
+            # Stop if we run out of data
             if train_data.get_dataframe().empty or test_data.get_dataframe().empty:
                 break
                 
+            # 1. Train on the rolling window
             self.train(train_data)
+            
+            # 2. Predict on the "future" (testing window)
+            # IMPORTANT: fold_predictions must have the same index as test_data
             fold_predictions = self.test(test_data)
-
-            # print(f"{fold_predictions.shape} predictions generated for current window.")
-            # print(f"{test_data.get_dataframe().shape} test samples processed for current window.")
-
-            predictions = pd.concat([test_data.get_dataframe()[['open_time_iso', 'log_return']], fold_predictions], axis=1, ignore_index=True)
-            predictions.columns = ['open_time_iso', 'log_return', 'prediction']
-            # print(f"{predictions.shape} total items (timestamps + predictions) for current window.")
-
-            all_predictions = pd.concat([all_predictions, predictions])
-
-            # print(test_data.get_dataframe())
             
-            if self.data_selector.is_last_window():
-                break
+            if not fold_predictions.empty:
+                all_predictions.append(fold_predictions)
+
+            # # 3. Check termination condition
+            # if self.data_selector.is_last_window():
+            #     break
             
+            # 4. Move the window forward
             self.data_selector.update()
-        all_predictions.reset_index(drop=True, inplace=True)
-        return all_predictions
+
+        # Concatenate all time steps
+        if not all_predictions:
+            return pd.DataFrame()
+            
+        # We simply concatenate. Since we used the original indices in `test()`, 
+        # this DataFrame is perfectly aligned with the original DataWrapper.
+        return pd.concat(all_predictions)

@@ -6,7 +6,7 @@ class Tester:
     Handles inference and prediction generation for a trained model on datasets wrapped by 
     `DataWrapper`.
     """
-    def __init__(self, model: Model = None):
+    def __init__(self, model: Model = None, feature_scaler = None):
         """
         Initialize the Tester with a model.
 
@@ -15,6 +15,7 @@ class Tester:
             The model to be used for testing.
         """
         self.model = model
+        self.feature_scaler = feature_scaler
 
     def test(self, data_wrapper):
         """
@@ -28,6 +29,9 @@ class Tester:
         pd.DataFrame:
             The predicted labels.
         """
+        if self.feature_scaler:
+            self.feature_scaler.transform(data_wrapper)
+
         features = data_wrapper.get_features()
         # Filter only input columns defined in the model
         if self.model.input_columns:
@@ -48,3 +52,7 @@ class Tester:
         else:
             predictions = self.model.predict(features)
             return pd.DataFrame(index=data_wrapper.get_dataframe().index, data=predictions)
+    def set_model_params(self, params):
+        """Pass hyperparameter updates to the underlying model."""
+        if self.model:
+            self.model.set_params(params)
