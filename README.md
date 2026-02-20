@@ -4,7 +4,7 @@ The goal of this project is to test the performance of different machine learnin
 
 For this purpose we build the full pipeline that contains the following three main stages:
 - Data loading/preprocessing;
-- Model building/training;
+- Model building;
 - Execution of the strategies based on the available data and predictions of the model. 
 
 ### Data loading/preprocessing
@@ -16,9 +16,18 @@ List of modules/classes responsible for data loading and data preprocessing:
     - **window.py** - responsible for slicing the dataset into windows
     - **scaler.py** - wrapper around standard scikit-learn scaler methods for scalling the data from the provided window and avoid look-ahead bias
 
-### Model building/training
+### Model building
 List of modules/classes responsible for data loading and data preprocessing:
 - **model**:
     - **base.py** - common abstract class for scikit-learn and torch models that unifies the model workflow: fit() -> predict() -> reset().
     - **sklear_adapter.py** - wrapper for scikit-learn models.
     - **torch_adapter.py** - wrapper for torch models.
+
+### Execution
+List of modules/classes responsible for exectution of the strategies, and model training: 
+- **execution**:
+    - **walk_forward.py** - responsible for running the model over the sliced windows.
+    - **strategy.py** - responsible for turning the predictions to the signals.
+    - **backtester.py** - responsible for backtesting/evaluating the startegy.
+- **utils**:
+    - **evaluation.py** - contains the methods for the computation of the preformance metrics. 
