@@ -72,14 +72,26 @@ class SklearnAdapter(BaseModel):
 
     # Persistence                                                        
     def save(self, path: str | Path) -> None:
+        """Save estimator and metadata to disk via pickle."""
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "estimator": self.estimator,
+            "input_columns": self.input_columns,
+        }
         with open(path, "wb") as f:
-            pickle.dump(self.estimator, f)
+            pickle.dump(payload, f)
 
     def load(self, path: str | Path) -> None:
+        """Restore estimator and metadata from a saved file."""
         with open(Path(path), "rb") as f:
-            self.estimator = pickle.load(f)
+            payload = pickle.load(f)
+        if isinstance(payload, dict) and "estimator" in payload:
+            self.estimator = payload["estimator"]
+            self.input_columns = payload.get("input_columns")
+        else:
+            # Backwards-compatible: bare estimator saved by old code
+            self.estimator = payload
         self.is_classifier_ = is_classifier(self.estimator)
 
     # Repr                                                               

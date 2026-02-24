@@ -176,15 +176,30 @@ class TorchAdapter(BaseModel):
 
     #  Persistence
     def save(self, path: str | Path) -> None:
+        """Save module weights, input_columns, and training params."""
         self._check_torch()
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        torch.save(self.module.state_dict(), path)
+        checkpoint = {
+            "state_dict": self.module.state_dict(),
+            "input_columns": self.input_columns,
+            "params": self.get_params(),
+        }
+        torch.save(checkpoint, path)
 
     def load(self, path: str | Path) -> None:
+        """Restore module weights and metadata from a checkpoint."""
         self._check_torch()
-        state = torch.load(Path(path), map_location=self.device)
-        self.module.load_state_dict(state)
+        checkpoint = torch.load(Path(path), map_location=self.device)
+        if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
+            self.module.load_state_dict(checkpoint["state_dict"])
+            self.input_columns = checkpoint.get("input_columns")
+            for k, v in checkpoint.get("params", {}).items():
+                if hasattr(self, k):
+                    setattr(self, k, v)
+        else:
+            # Backwards-compatible: bare state_dict saved by old code
+            self.module.load_state_dict(checkpoint)
 
     # Hyperparameters
     def get_params(self) -> Dict:
