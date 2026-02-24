@@ -115,16 +115,30 @@ def _mfi(ds: Dataset, period: int = 14, **_kw) -> None:
 # Label transforms 
 
 @register("LOG_RETURN")
-def _log_return(ds: Dataset, column: str = "close", shift: int = -1, **_kw) -> None:
+def _log_return(ds: Dataset, column: str = "close", horizon: int = 1, **_kw) -> None:
     """
-    Compute logarithmic return: ln(price_t / price_{t-1}), then shift
-    by "shift" to create a forward-looking label or a lagged feature.
+    Forward cumulative log return:  ln(P_{t+horizon} / P_t).
+
+    For horizon=1 this is the simple next-step log return.
+    The last *horizon* rows become NaN (no future data).
+    """
+    series = ds.df[column]
+    log_ret = np.log(series.shift(-horizon) / series)
+    ds.add_labels(log_ret.rename("log_return"))
+
+@register("LAGGED_RETURNS")
+def _lagged_returns(ds: Dataset, column: str = "close", lags: int = 336, **_kw) -> None:
+    """
+    Create lagged log-return features for tabular (sklearn) models.
+
+    Computes the 1-step log return  ln(P_t / P_{t-1})  and then adds
+    *lags* shifted copies: log_return_lag_1 … log_return_lag_{lags}.
+    Each lag uses only past data so there is no look-ahead leakage.
     """
     series = ds.df[column]
     log_ret = np.log(series / series.shift(1))
-    if shift != 0:
-        log_ret = log_ret.shift(shift)
-    ds.add_labels(log_ret.rename("log_return"))
+    for lag in range(1, lags + 1):
+        ds.add_features(log_ret.shift(lag).rename(f"log_return_lag_{lag}"))
 
 
 @register("SIMPLE_RETURN")

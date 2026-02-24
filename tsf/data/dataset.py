@@ -174,12 +174,14 @@ class Dataset:
     def get_tabular(self) -> Tuple[np.ndarray, np.ndarray]:
         """
         Return (X, y) as 2-D NumPy arrays for scikit-learn models.
+        Each row is an independent entry. We specify the size of the 
+        lookback window for each entry and the forecast horizon. 
 
         Returns:
 
         X : np.ndarray, shape (n_samples, n_features)
         y : np.ndarray, shape (n_samples,) or (n_samples, n_labels)
-        """
+        """        
         X = self.get_features().to_numpy()
         y = self.get_labels().to_numpy().squeeze() # squeeze() collapses the shape (a, 1) or (1, a) to (a,) 
         return X, y

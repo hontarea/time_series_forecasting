@@ -10,7 +10,7 @@ from tsf.data.dataset import Dataset
 
 #  Default column presets for common data types                       
 _TICK_PRESET: Dict[str, object] = {
-    "feature_cols": ["open", "high", "low", "close", "volume"],
+    "feature_cols": [],
     "time_col": "open_time_iso",
     "ohlcv_cols": {
         "open": "open",
