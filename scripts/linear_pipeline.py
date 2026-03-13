@@ -1,5 +1,5 @@
 """
-Linear Model Pipeline 
+Linear Model Pipeline
 
 Pipeline:
 1. Data Loading
@@ -15,6 +15,7 @@ Usage:
     python scripts/linear_pipeline.py --no-optimize
     python scripts/linear_pipeline.py --save-plots plots/
     python scripts/linear_pipeline.py --save-model models/linear.pt
+    python scripts/linear_pipeline.py --save-results results/linear.txt
 """
 
 from __future__ import annotations
@@ -233,6 +234,46 @@ def run_optimised(
     return predictions, result, engine
 
 
+def save_results(
+    baseline_result: dict,
+    optimised_result: dict | None,
+    best_params: dict | None,
+    save_path: Path,
+) -> None:
+    """Write backtest metrics to a txt file."""
+    lines = ["LINEAR MODEL PIPELINE — RESULTS", ""]
+
+    lines.append("CONFIG")
+    lines.append(f"  LOOKBACK    : {LOOKBACK}")
+    lines.append(f"  HORIZON     : {HORIZON}")
+    lines.append(f"  LR (default): {LR}")
+    lines.append(f"  EPOCHS (def): {EPOCHS}")
+    lines.append(f"  BATCH_SIZE  : {BATCH_SIZE}")
+    lines.append("")
+
+    if baseline_result:
+        lines.append("BASELINE BACKTEST METRICS")
+        for name, value in baseline_result["metrics"].items():
+            lines.append(f"  {name:20s}: {value:.6f}")
+        lines.append("")
+
+    if best_params:
+        lines.append("BEST HYPERPARAMETERS (Optuna)")
+        for k, v in best_params.items():
+            lines.append(f"  {k:20s}: {v}")
+        lines.append("")
+
+    if optimised_result:
+        lines.append("OPTIMISED BACKTEST METRICS")
+        for name, value in optimised_result["metrics"].items():
+            lines.append(f"  {name:20s}: {value:.6f}")
+        lines.append("")
+
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+    save_path.write_text("\n".join(lines))
+    print(f"\n   Results saved to {save_path}")
+
+
 def plot_results(
     baseline_result: dict,
     optimised_result: dict | None = None,
@@ -321,6 +362,10 @@ def parse_args() -> argparse.Namespace:
         "--save-model", type=str, default=None,
         help="Path to save the final trained model (e.g. models/linear.pt).",
     )
+    parser.add_argument(
+        "--save-results", type=str, default=None,
+        help="Path to save backtest results as a txt file (e.g. results/linear.txt).",
+    )
     return parser.parse_args()
 
 
@@ -346,6 +391,10 @@ def main() -> None:
     if not args.no_optimize:
         best_params = optimize(dataset, window)
         _, optimised_result, final_engine = run_optimised(dataset, window, best_params)
+
+    # Save results
+    if args.save_results:
+        save_results(baseline_result, optimised_result, Path(args.save_results))
 
     # Save model
     if args.save_model:
