@@ -237,11 +237,10 @@ def run_optimised(
 def save_results(
     baseline_result: dict,
     optimised_result: dict | None,
-    best_params: dict | None,
     save_path: Path,
 ) -> None:
     """Write backtest metrics to a txt file."""
-    lines = ["LINEAR MODEL PIPELINE — RESULTS", ""]
+    lines = ["LINEAR MODEL PIPELINE - RESULTS", ""]
 
     lines.append("CONFIG")
     lines.append(f"  LOOKBACK    : {LOOKBACK}")
@@ -255,12 +254,6 @@ def save_results(
         lines.append("BASELINE BACKTEST METRICS")
         for name, value in baseline_result["metrics"].items():
             lines.append(f"  {name:20s}: {value:.6f}")
-        lines.append("")
-
-    if best_params:
-        lines.append("BEST HYPERPARAMETERS (Optuna)")
-        for k, v in best_params.items():
-            lines.append(f"  {k:20s}: {v}")
         lines.append("")
 
     if optimised_result:
