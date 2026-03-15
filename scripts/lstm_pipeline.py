@@ -65,8 +65,8 @@ FEATURE_CONFIG = [
     {"name": "BBANDS", "period": 20},
     # Volume
     {"name": "OBV"},
-    # Label — forward cumulative log return: ln(P_{t+24} / P_t)
-    {"name": "log_return", "horizon": HORIZON},
+    # Label — one-step log return: ln(P_{t+1} / P_t)
+    {"name": "log_return", "horizon": 1},
 ]
 
 WINDOW_CONFIG = {
@@ -88,7 +88,7 @@ SEARCH_SPACE = {
 }
 
 N_TRIALS = 10
-ANNUAL_FACTOR = 365  # one 24-hour window per day
+ANNUAL_FACTOR = 8760  # per-hour trading: 24 h × 365 days
 
 
 #  Pipeline steps
