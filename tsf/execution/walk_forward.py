@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import warnings
 from typing import Optional
+from pathlib import Path
 
 import pandas as pd
-
 import numpy as np
 
 from tsf.data.dataset import Dataset
@@ -237,7 +237,16 @@ class WalkForwardEngine:
                 raise ValueError(
                     f"Fold {fold_idx + 1}: training features contain NaN values."
                 )
-            self.model.fit(X_train, y_train)
+            # Build DMS(Direct Multi-Step) forecasting target matrix: 
+            # each row i gets targets [r_{i+1}, ..., r_{i+H}]
+            y_arr = y_train.to_numpy().squeeze()  # (n,)
+            n = len(y_arr)
+            valid = n - self.horizon
+            X_train = X_train.iloc[:valid]
+            y_mat = np.stack(
+                [y_arr[i + 1 : i + 1 + self.horizon] for i in range(valid)], axis=0
+            )  # (valid, horizon)
+            self.model.fit(X_train, y_mat)
         elif self.model.data_format == DataFormat.TORCH_LOADER:
             if not _TORCH_AVAILABLE:
                 raise ImportError("PyTorch is required for torch-based models.")
@@ -292,9 +301,9 @@ class WalkForwardEngine:
             )
 
         preds = self.model.predict(X_test)
-        return pd.DataFrame(
-            preds, index=[test_ds.df.index[0]], columns=["prediction"],
-        )
+        preds_flat = np.asarray(preds).flatten()  # (horizon,)
+        test_index = test_ds.df.index[: self.horizon]
+        return pd.DataFrame(preds_flat, index=test_index, columns=["prediction"])
 
     # Torch fold                                    
     def _run_torch_fold(
@@ -344,13 +353,8 @@ class WalkForwardEngine:
 
         raw_preds = self.model.predict(X_pred_tensor)  # (1, horizon, L)
 
-        # Reshape: keep only the first prediction step (window start)
         if raw_preds.ndim == 3:
             raw_preds = raw_preds.squeeze(0)  # (horizon, L)
-        if raw_preds.ndim == 1:
-            raw_preds = raw_preds.reshape(-1, 1)  # (horizon, 1)
-
-        raw_preds = raw_preds[[0]]  # (1, L) — single window prediction
 
         label_cols = test_ds.label_cols
         if raw_preds.shape[1] == 1:
@@ -360,11 +364,8 @@ class WalkForwardEngine:
                 f"prediction_{i}" for i in range(raw_preds.shape[1])
             ]
 
-        return pd.DataFrame(
-            raw_preds,
-            index=[test_ds.df.index[0]],
-            columns=col_names,
-        )
+        test_index = test_ds.df.index[: self.horizon]
+        return pd.DataFrame(raw_preds, index=test_index, columns=col_names)
 
     # Hyperparameter pass-through for Optimizer integration
     def set_model_params(self, params: dict) -> None:

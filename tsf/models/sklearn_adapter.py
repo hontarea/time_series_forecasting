@@ -7,6 +7,7 @@ from typing import Dict, List, Optional
 import pandas as pd
 import sklearn.base
 from sklearn.base import BaseEstimator, is_classifier
+from sklearn.multioutput import MultiOutputRegressor
 
 from tsf.models.base import BaseModel, DataFormat
 
@@ -39,11 +40,13 @@ class SklearnAdapter(BaseModel):
 
     #  Core methods                                                 
     def fit(self, X: pd.DataFrame, y: pd.DataFrame | pd.Series) -> None:
-        # in case y of the form (a,) or (,a) - transform to (a, 1) or (1, a) respectively
         if isinstance(y, pd.DataFrame):
-            y = y.squeeze()
+            y = y.to_numpy()
         if hasattr(y, "ndim") and y.ndim > 1 and y.shape[1] == 1:
             y = y.squeeze()
+        elif hasattr(y, "ndim") and y.ndim > 1 and y.shape[1] > 1:
+            if not isinstance(self.estimator, MultiOutputRegressor):
+                self.estimator = MultiOutputRegressor(self.estimator)
 
         self.estimator.fit(X, y)
 

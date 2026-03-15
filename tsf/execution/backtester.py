@@ -15,9 +15,9 @@ class Backtester:
     Per-window backtesting engine.
 
     The backtester operates at per-window granularity.  Each window
-    corresponds to one prediction horizon (default 24 hours).  The model
+    corresponds to one prediction horizon (default 24 hours). The model
     produces one forecast per window and the strategy holds one position
-    for the entire window.  Transaction costs are incurred only when the
+    for the entire window. Transaction costs are incurred only when the
     position changes between consecutive windows.
 
     Capital is compounded via exp(cumulative log return) to remain
@@ -68,14 +68,12 @@ class Backtester:
     #  Per-window construction
     def _build_window_df(self, predictions: pd.Series) -> pd.DataFrame:
         """
-        Pair each per-window prediction with the realised cumulative sum of
-        log return over that window.
+        Pair each per-hour prediction with the realised one-step log return.
 
-        The walk-forward engine emits exactly one prediction per
-        fold (the window-start observation).  This method computes
-        the corresponding actual return:
+        The walk-forward engine emits one prediction per hour (horizon
+        predictions per fold).  This method computes the actual return:
 
-            actual = ln(P_{t+H} / P_t)
+            actual = ln(P_{t+1} / P_t)
 
         directly from close prices so that predicted and actual are on
         the same scale.
@@ -83,7 +81,7 @@ class Backtester:
         Returns
  -
         pd.DataFrame
-            Index : window-start timestamps (one per fold).
+            Index : hourly timestamps (one per prediction).
             Columns : predicted, actual.
         """
         close = self._get_close()
@@ -92,16 +90,12 @@ class Backtester:
         for t in predictions.index:
             try:
                 t_pos = close.index.get_loc(t)
-                end_pos = t_pos + self.horizon
-                if end_pos < len(close):
+                if t_pos + 1 < len(close):
                     actual = float(
-                        np.log(close.iloc[end_pos] / close.iloc[t_pos])
+                        np.log(close.iloc[t_pos + 1] / close.iloc[t_pos])
                     )
                 else:
-                    # Partial last window - use last available close
-                    actual = float(
-                        np.log(close.iloc[-1] / close.iloc[t_pos])
-                    )
+                    actual = np.nan
             except KeyError:
                 actual = np.nan
             actuals.append(actual)

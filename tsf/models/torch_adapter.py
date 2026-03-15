@@ -170,7 +170,7 @@ class TorchAdapter(BaseModel):
     def reset(self) -> None:
         """Reinitialise module weights."""
         if self.module is not None:
-            for layer in self.module.children():
+            for layer in self.module.modules():
                 if hasattr(layer, "reset_parameters"):
                     layer.reset_parameters()
 
