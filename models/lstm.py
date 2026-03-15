@@ -55,12 +55,7 @@ class LSTMModel(nn.Module):
         )
 
         # Reshape in forward:  (B, pred_len * c_out) -> (B, pred_len, c_out)
-        self.head = nn.Sequential(
-            nn.Linear(hidden_size, hidden_size),
-            nn.ReLU(),
-            nn.Linear(hidden_size, pred_len * c_out),
-        )
-
+        self.head = nn.Linear(hidden_size, pred_len * c_out)
 
     def forward(self, x: torch.Tensor, y: torch.Tensor | None = None) -> torch.Tensor:
         """
