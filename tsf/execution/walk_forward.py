@@ -6,54 +6,43 @@ from pathlib import Path
 
 import pandas as pd
 import numpy as np
+import torch
 
 from tsf.data.dataset import Dataset
 from tsf.data.scaler import FeatureScaler
 from tsf.data.window import WindowGenerator
 from tsf.models.base import BaseModel, DataFormat
 
-try:
-    import torch
-    _TORCH_AVAILABLE = True
-except ImportError:
-    _TORCH_AVAILABLE = False
-
-
 class WalkForwardEngine:
     """
     Walk-forward validation runner.
 
     Args:
-
-    model : BaseModel
-        The model to train and evaluate.
-    window : WindowGenerator
-        The window configuration producing train/test splits.
-    scaler : FeatureScaler, optional
-        If provided, the scaler is fit() on each training fold and
-        transform() on both train and test folds.
-    reset_model : bool
-        Whether to call model.reset() before each fold (default True).
-        Set to False for incremental learning.
-    lookback : int
-        Number of past time steps used as model input.  Required
-        (> 0) for torch-based models (DataFormat.TORCH_LOADER).
-        Also controls the number of auto-injected lagged features
-        for tabular models.  Default is 336 (14 days of 1-hour data).
-    horizon : int
-        Number of future time steps to predict.  Required (> 0) for
-        torch-based models.  Should match the test_window of the
-        WindowGenerator (in number of data points).  Default is 24
-        (1 day of 1-hour data).
+        model : BaseModel
+        window : WindowGenerator
+            The window configuration producing train/test splits.
+        scaler : FeatureScaler, optional
+            If provided, the scaler is fit() on each training fold and
+            transform() on both train and test folds.
+        reset_model : bool
+            Whether to call model.reset() before each fold (default True).
+        lookback : int
+            Number of past time steps used as model input. Required
+            (> 0) for torch-based models (DataFormat.TORCH_LOADER).
+            Also controls the number of auto-injected lagged features
+            for tabular models. Default is 336 (14 days of 1-hour data).
+        horizon : int
+            Number of future time steps to predict. Required (> 0) for
+            torch-based models. Should match the test_window of the
+            WindowGenerator (in number of data points). Default is 24
+            (1 day of 1-hour data).
 
     Example:
-
         engine = WalkForwardEngine(
             model=my_model, window=wg, scaler=scaler,
             lookback=336, horizon=24,
         )
         predictions = engine.run()
-        # predictions is a pd.DataFrame with columns ["prediction"]
     """
 
     def __init__(
@@ -76,7 +65,6 @@ class WalkForwardEngine:
         # Test_window should match horizon
         self._validate_test_window_horizon()
 
-    # Validation helpers
     def _validate_test_window_horizon(self) -> None:
         """Warn if test_window duration does not match horizon in hours."""
         try:
@@ -116,9 +104,13 @@ class WalkForwardEngine:
 
         from tsf.data.feature_engineer import _REGISTRY
         fn = _REGISTRY.get("LAGGED_RETURNS")
+        if fn is None:
+            raise RuntimeError(
+                "Feature engineer 'LAGGED_RETURNS' is not registered in _REGISTRY."
+            )
 
         fn(ds, lags=self.lookback)
-        ds.dropna(reset_index=True)
+        ds.dropna(reset_index=False)
         self._lagged_features_added = True
 
     # Embargo trimming
@@ -141,26 +133,20 @@ class WalkForwardEngine:
         Execute the walk-forward loop and return all predictions.
 
         Every fold follows the same uniform pipeline:
-
-        Trim - remove the last horizon rows from the
-           training set (embargo period).
-        Reset - optionally reset the model weights.
-        Scale - fit scaler on the trimmed training set, then
-           transform both the trimmed set and the test set.
-        Train - fit the model on the trimmed training set.
-        Predict - generate predictions for the test set.
-           For torch models the prediction context comes from the
-           full (untrimmed) training tail so the model sees the
-           freshest available features at prediction time.
+            - Trim - remove the last horizon rows from the
+            training set (embargo period).
+            - Reset - optionally reset the model weights.
+            - Scale - fit scaler on the trimmed training set, then
+            transform both the trimmed set and the test set.
+            - Train - fit the model on the trimmed training set.
+            - Predict - generate predictions for the test set.
 
         Returns:
-        
-        pd.DataFrame
-            Predictions from every test fold, concatenated.
-            Columns: ["prediction"].
-            Index: aligned with the original Dataset.
+            pd.DataFrame
+                Predictions from every test fold, concatenated.
+                Columns: ["prediction"].
+                Index: aligned with the original Dataset.
         """
-        # Auto-inject lagged features for tabular models
         self._ensure_lagged_features()
         all_predictions: list[pd.DataFrame] = []
         splits = list(self.window.get_splits())
@@ -189,6 +175,7 @@ class WalkForwardEngine:
                 self.scaler.fit(trimmed_ds)
                 self.scaler.transform(trimmed_ds)
                 self.scaler.transform(test_ds)
+                self.scaler.transform(train_ds)
 
             # Train on trimmed, predict on test
             fold_preds = self._dispatch_fold(
@@ -196,6 +183,7 @@ class WalkForwardEngine:
                 train=True,
                 full_train_ds=train_ds,
             )
+
             all_predictions.append(fold_preds)
 
         return self._finalize(all_predictions)
@@ -225,54 +213,7 @@ class WalkForwardEngine:
             raise ValueError(
                 f"Unsupported data format: {self.model.data_format}"
             )
-
-    def _train_model(self, train_ds: Dataset, fold_idx: int) -> None:
-        """Train the model on a training dataset (format-aware)."""
-        if self.model.data_format == DataFormat.TABULAR:
-            X_train = train_ds.get_features()
-            y_train = train_ds.get_labels()
-            if self.model.input_columns:
-                X_train = X_train[self.model.input_columns]
-            if X_train.isnull().values.any():
-                raise ValueError(
-                    f"Fold {fold_idx + 1}: training features contain NaN values."
-                )
-            # Build DMS(Direct Multi-Step) forecasting target matrix: 
-            # each row i gets targets [r_{i+1}, ..., r_{i+H}]
-            y_arr = y_train.to_numpy().squeeze()  # (n,)
-            n = len(y_arr)
-            valid = n - self.horizon
-            X_train = X_train.iloc[:valid]
-            y_mat = np.stack(
-                [y_arr[i + 1 : i + 1 + self.horizon] for i in range(valid)], axis=0
-            )  # (valid, horizon)
-            self.model.fit(X_train, y_mat)
-        elif self.model.data_format == DataFormat.TORCH_LOADER:
-            if not _TORCH_AVAILABLE:
-                raise ImportError("PyTorch is required for torch-based models.")
-            if self.lookback <= 0 or self.horizon <= 0:
-                raise ValueError(
-                    "WalkForwardEngine requires lookback > 0 and horizon > 0 "
-                    "for torch-based models.  Set them in the constructor."
-                )
-            batch_size = getattr(self.model, "batch_size", 32)
-            train_loader = train_ds.get_sequence_loader(
-                lookback=self.lookback,
-                horizon=self.horizon,
-                batch_size=batch_size,
-                shuffle=True,
-            )
-            self.model.fit(train_loader)
-
-    @staticmethod
-    def _finalize(all_predictions: list[pd.DataFrame]) -> pd.DataFrame:
-        """Concatenate fold predictions and de-duplicate overlapping indices."""
-        if not all_predictions:
-            return pd.DataFrame()
-        result = pd.concat(all_predictions)
-        result = result[~result.index.duplicated(keep="last")]
-        return result
-
+        
     # Tabular fold                                
     def _run_tabular_fold(
         self,
@@ -282,12 +223,13 @@ class WalkForwardEngine:
         *,
         train: bool = True,
     ) -> pd.DataFrame:
-        """Optionally train via _train_model(), then predict.
+        """
+        Optionally train via _train_model(), then predict.
 
-        Only the **first row** of ``test_ds`` is predicted — this is
+        Only the first ``test_ds`` is predicted - this is
         the window-start observation whose features encode the state at
-        time *t*, and the model forecasts ln(P_{t+H}/P_t).  One
-        prediction per fold matches the per-window backtester design.
+        time *t*, and the model forecasts: 
+        [log(P_{t+1}/P_t), ..., log(P_{t+``horizon``}/P_{t+})].
         """
         if train:
             self._train_model(train_ds, fold_idx)
@@ -302,6 +244,10 @@ class WalkForwardEngine:
 
         preds = self.model.predict(X_test)
         preds_flat = np.asarray(preds).flatten()  # (horizon,)
+        if self.scaler is not None and self.scaler.scale_labels:
+            preds_flat = self.scaler.inverse_transform_labels(
+                preds_flat.reshape(-1, 1)
+            ).flatten()
         test_index = test_ds.df.index[: self.horizon]
         return pd.DataFrame(preds_flat, index=test_index, columns=["prediction"])
 
@@ -326,14 +272,13 @@ class WalkForwardEngine:
         Prediction phase:
             The last lookback feature rows from full_train_ds
             (the untrimmed training window) are used as model input
-            to produce a single-shot forecast of horizon steps.
+            to produce a single-shot forecast of horizon steps, i.e.
+            [log(P_{t+1}/P_t), ..., log(P_{t+``horizon``}/P_{t+})], 
+            where t is the first timestamp in the testing window. 
             This ensures the prediction context includes the freshest
             data available at prediction time, even though that data
             was excluded from training (embargo period).
         """
-        if not _TORCH_AVAILABLE:
-            raise ImportError("PyTorch is required for torch-based models.")
-
         if self.lookback <= 0 or self.horizon <= 0:
             raise ValueError(
                 "WalkForwardEngine requires lookback > 0 and horizon > 0 "
@@ -356,6 +301,9 @@ class WalkForwardEngine:
         if raw_preds.ndim == 3:
             raw_preds = raw_preds.squeeze(0)  # (horizon, L)
 
+        if self.scaler is not None and self.scaler.scale_labels:
+            raw_preds = self.scaler.inverse_transform_labels(raw_preds)
+
         label_cols = test_ds.label_cols
         if raw_preds.shape[1] == 1:
             col_names = ["prediction"]
@@ -366,6 +314,51 @@ class WalkForwardEngine:
 
         test_index = test_ds.df.index[: self.horizon]
         return pd.DataFrame(raw_preds, index=test_index, columns=col_names)
+
+    def _train_model(self, train_ds: Dataset, fold_idx: int) -> None:
+        """Train the model on a training dataset (format-aware)."""
+        if self.model.data_format == DataFormat.TABULAR:
+            X_train = train_ds.get_features()
+            y_train = train_ds.get_labels()
+            if self.model.input_columns:
+                X_train = X_train[self.model.input_columns]
+            if X_train.isnull().values.any():
+                raise ValueError(
+                    f"Fold {fold_idx + 1}: training features contain NaN values."
+                )
+            # Build DMS(Direct Multi-Step) forecasting target matrix: 
+            # each row i gets targets [r_{i+1}, ..., r_{i+H}]
+            y_arr = y_train.to_numpy().squeeze()  # (n,)
+            n = len(y_arr)
+            valid = n - self.horizon
+            X_train = X_train.iloc[:valid]
+            y_mat = np.stack(
+                [y_arr[i : i + self.horizon] for i in range(valid)], axis=0
+            )  # (valid, horizon)
+            self.model.fit(X_train, y_mat)
+        elif self.model.data_format == DataFormat.TORCH_LOADER:
+            if self.lookback <= 0 or self.horizon <= 0:
+                raise ValueError(
+                    "WalkForwardEngine requires lookback > 0 and horizon > 0 "
+                    "for torch-based models.  Set them in the constructor."
+                )
+            batch_size = getattr(self.model, "batch_size", 32)
+            train_loader = train_ds.get_sequence_loader(
+                lookback=self.lookback,
+                horizon=self.horizon,
+                batch_size=batch_size,
+                shuffle=True,
+            )
+            self.model.fit(train_loader)
+
+    @staticmethod
+    def _finalize(all_predictions: list[pd.DataFrame]) -> pd.DataFrame:
+        """Concatenate fold predictions and de-duplicate overlapping indices."""
+        if not all_predictions:
+            return pd.DataFrame()
+        result = pd.concat(all_predictions)
+        result = result[~result.index.duplicated(keep="last")]
+        return result
 
     # Hyperparameter pass-through for Optimizer integration
     def set_model_params(self, params: dict) -> None:
