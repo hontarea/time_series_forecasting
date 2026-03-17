@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List
 
 import numpy as np
 import pandas as pd
@@ -21,7 +21,7 @@ def register(name: str):
         def fn(dataset: Dataset, **params) -> None
 
     It should mutate dataset in place via add_features / add_labels.
-    It should not call dropna — the engine does that once at the end.
+    It should not call dropna - the engine does that once at the end.
     """
     def decorator(fn: Callable[..., None]):
         _REGISTRY[name.upper()] = fn
@@ -32,13 +32,11 @@ def register(name: str):
 # Technical Indicators                                               
 
 # Momentum  
-
 @register("RSI")
 def _rsi(ds: Dataset, period: int = 14, **_kw) -> None:
     import talib as ta
     feature = ta.RSI(ds.close, timeperiod=period).rename("rsi")
     ds.add_features(feature)
-
 
 @register("KAMA")
 def _kama(ds: Dataset, period: int = 30, **_kw) -> None:
@@ -46,28 +44,23 @@ def _kama(ds: Dataset, period: int = 30, **_kw) -> None:
     feature = ta.KAMA(ds.close, timeperiod=period).rename("kama")
     ds.add_features(feature)
 
-
 @register("SWMA")
 def _swma(ds: Dataset, **_kw) -> None:
     c = ds.close
     swma = (c + 2 * c.shift(1) + 2 * c.shift(2) + c.shift(3)) / 6
     ds.add_features(swma.rename("swma"))
 
-
 @register("HLC3")
 def _hlc3(ds: Dataset, **_kw) -> None:
     hlc3 = ((ds.high + ds.low + ds.close) / 3).rename("hlc3")
     ds.add_features(hlc3)
 
-
 # Trend 
-
 @register("EMA")
 def _ema(ds: Dataset, period: int = 12, **_kw) -> None:
     import talib as ta
     feature = ta.EMA(ds.close, timeperiod=period).rename("ema")
     ds.add_features(feature)
-
 
 @register("TEMA")
 def _tema(ds: Dataset, period: int = 12, **_kw) -> None:
@@ -75,15 +68,12 @@ def _tema(ds: Dataset, period: int = 12, **_kw) -> None:
     feature = ta.TEMA(ds.close, timeperiod=period).rename("tema")
     ds.add_features(feature)
 
-
 # Volatility  
-
 @register("ATR")
 def _atr(ds: Dataset, period: int = 14, **_kw) -> None:
     import talib as ta
     feature = ta.ATR(ds.high, ds.low, ds.close, timeperiod=period).rename("atr")
     ds.add_features(feature)
-
 
 @register("BBANDS")
 def _bbands(ds: Dataset, period: int = 20, nbdevup: int = 2, nbdevdn: int = 2, matype: int = 0, **_kw) -> None:
@@ -95,15 +85,12 @@ def _bbands(ds: Dataset, period: int = 20, nbdevup: int = 2, nbdevdn: int = 2, m
     ds.add_features(middle.rename("bb_middle"))
     ds.add_features(lower.rename("bb_lower"))
 
-
 # Volume
-
 @register("OBV")
 def _obv(ds: Dataset, **_kw) -> None:
     import talib as ta
     feature = ta.OBV(ds.close, ds.volume).rename("obv")
     ds.add_features(feature)
-
 
 @register("MFI")
 def _mfi(ds: Dataset, period: int = 14, **_kw) -> None:
@@ -111,16 +98,11 @@ def _mfi(ds: Dataset, period: int = 14, **_kw) -> None:
     feature = ta.MFI(ds.high, ds.low, ds.close, ds.volume, timeperiod=period).rename("mfi")
     ds.add_features(feature)
 
-
 # Label transforms 
-
 @register("LOG_RETURN")
 def _log_return(ds: Dataset, column: str = "close", horizon: int = 1, **_kw) -> None:
     """
     Forward cumulative log return:  ln(P_{t+horizon} / P_t).
-
-    For horizon=1 this is the simple next-step log return.
-    The last *horizon* rows become NaN (no future data).
     """
     series = ds.df[column]
     log_ret = np.log(series.shift(-horizon) / series)
@@ -143,25 +125,20 @@ def _lagged_returns(ds: Dataset, column: str = "close", lags: int = 336, **_kw) 
 
 @register("SIMPLE_RETURN")
 def _simple_return(ds: Dataset, column: str = "close", shift: int = -1, **_kw) -> None:
-    """Percentage change, optionally shifted for forward-looking labels."""
+    """Percentage change, shifted for forward-looking labels."""
     series = ds.df[column]
     ret = series.pct_change()
-    if shift != 0:
-        ret = ret.shift(shift)
+    ret = ret.shift(shift)
     ds.add_labels(ret.rename("simple_return"))
-
 
 class FeatureEngineer:
     """
     Args:
-
-    config : list[dict]
-        Each dict must contain a "name" key matching a registered
-        transform.  All other keys are forwarded as **params.
-    dropna : bool
-        Whether to drop NaN rows after applying all transforms (default True).
-    reset_index : bool
-        Whether to reset the index after dropping NaNs (default True).
+        config : list[dict]
+            Each dict must contain a "name" key matching a registered
+            transform. All other keys are forwarded as **params.
+        dropna : bool
+        reset_index : bool
 
     Example:
         config = [

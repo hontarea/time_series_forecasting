@@ -12,20 +12,17 @@ class Dataset:
     Unified data container for time-series modelling.
 
     Args: 
-
-    dataframe : pd.DataFrame
-        The underlying tabular data.
-    feature_cols : list[str], optional
-        Column names of the features
-    label_cols : list[str], optional
-        Column names of the prediction targets (labels).
-    time_col : str, default "open_time_iso"
-        Name of the datetime column used for temporal ordering.
-    ohlcv_cols : dict, optional
-        Mapping of canonical names with actual column names.
+        dataframe : pd.DataFrame
+            The underlying tabular data.
+        feature_cols : list[str], optional
+        label_cols : list[str], optional
+        time_col : str, default "open_time_iso"
+            Name of the datetime column used for temporal ordering.
+        ohlcv_cols : dict, optional
+            Mapping of canonical names with actual column names.
     """
 
-    # Default OHLCV mapping (overridable per-instance)                   
+    # Default OHLCV mapping                 
     DEFAULT_OHLCV = {
         "open": "open",
         "high": "high",
@@ -114,19 +111,18 @@ class Dataset:
 
     # Feature management                                                 
     def get_features(self) -> pd.DataFrame:
-        """Return a DataFrame view of the feature columns only."""
+        """Return a DataFrame view of the feature columns."""
         return self._df[self.feature_cols]
 
     def add_features(self, data: pd.DataFrame | pd.Series, *, on: str | None = None) -> None:
         """
-        Join new columns to the DataFrame and register them as features.
+        Join new columns to the underlying DataFrame and register them as features.
 
         Args:
-
-        data : DataFrame | Series
-            The new feature data.  Must be index-aligned or joinable via "on".
-        on : str, optional
-            Column name to join on (if not using index alignment).
+            data : DataFrame | Series
+                The new feature data.  Must be index-aligned or joinable via "on".
+            on : str, optional
+                Column name to join on (if not using index alignment).
         """
         if on:
             self._df = self._df.join(data, on=on)
@@ -157,8 +153,6 @@ class Dataset:
         self._df = self._df.drop(columns=cols, errors="ignore")
         self._label_cols.difference_update(cols)
 
-    
-    #  Generic column access                     
     def get_columns(self, cols: List[str]) -> pd.DataFrame:
         """Return arbitrary columns without role annotation."""
         return self._df[cols]
@@ -178,55 +172,12 @@ class Dataset:
         lookback window for each entry and the forecast horizon. 
 
         Returns:
-
-        X : np.ndarray, shape (n_samples, n_features)
-        y : np.ndarray, shape (n_samples,) or (n_samples, n_labels)
+            X : np.ndarray, shape (n_samples, n_features)
+            y : np.ndarray, shape (n_samples,) or (n_samples, n_labels)
         """        
         X = self.get_features().to_numpy()
         y = self.get_labels().to_numpy().squeeze() # squeeze() collapses the shape (a, 1) or (1, a) to (a,) 
         return X, y
-
-    def get_torch_loader(
-        self,
-        batch_size: int = 32,
-        shuffle: bool = False,
-    ):
-        """
-        Return a PyTorch DataLoader yielding (X_batch, y_batch)
-        float32 tensors.
-
-        Args:
-
-        batch_size : int
-            Mini-batch size (default 32).
-        shuffle : bool
-
-        Returns:
-
-        torch.utils.data.DataLoader
-        """
-        try:
-            import torch
-            from torch.utils.data import DataLoader as TorchDataLoader, TensorDataset
-        except ImportError:
-            raise ImportError(
-                "PyTorch is required for get_torch_loader(). "
-                "Install it with: pip install torch"
-            )
-
-        X = self.get_features().to_numpy()
-        y = self.get_labels().to_numpy()
-        if y.ndim == 1:
-            y = y.reshape(-1, 1)
-
-        X_tensor = torch.tensor(X, dtype=torch.float32)
-        y_tensor = torch.tensor(y, dtype=torch.float32)
-
-        return TorchDataLoader(
-            TensorDataset(X_tensor, y_tensor),
-            batch_size=batch_size,
-            shuffle=shuffle,
-        )
 
     def get_sequence_loader(
         self,
@@ -242,27 +193,25 @@ class Dataset:
         Each sample is created by sliding a window of size
         lookback + horizon over the dataset with stride 1:
 
-        - X[i] = features[i : i + lookback]          shape (lookback, F)
+        - X[i] = features[i : i + lookback]                     shape (lookback, F)
         - Y[i] = labels[i + lookback : i + lookback + horizon]  shape (horizon, L)
 
         Args:
-
-        lookback : int
-            Number of past time steps the model sees as input.
-        horizon : int
-            Number of future time steps the model must predict.
-        batch_size : int
-            Mini-batch size (default 32).
-        shuffle : bool
-            Whether to shuffle samples (True during training,
-            False during evaluation).
+            lookback : int
+                Number of past time steps the model sees as input.
+            horizon : int
+                Number of future time steps the model must predict.
+            batch_size : int
+                Mini-batch size (default 32).
+            shuffle : bool
+                Whether to shuffle samples (True during training,
+                False during evaluation).
 
         Returns:
-
-        torch.utils.data.DataLoader
-            Yields (X_batch, Y_batch) where
-            X_batch has shape (B, lookback, n_features) and
-            Y_batch has shape (B, horizon, n_labels).
+            torch.utils.data.DataLoader
+                Yields (X_batch, Y_batch) where
+                X_batch has shape (B, lookback, n_features) and
+                Y_batch has shape (B, horizon, n_labels).
         """
         try:
             import torch
@@ -273,8 +222,8 @@ class Dataset:
                 "Install it with: pip install torch"
             )
 
-        features = self.get_features().to_numpy()  # (N, F)
-        labels = self.get_labels().to_numpy()       # (N, L) or (N,)
+        features = self.get_features().to_numpy() # (N, F)
+        labels = self.get_labels().to_numpy() # (N, L) or (N,)
         if labels.ndim == 1:
             labels = labels.reshape(-1, 1)
 
@@ -309,17 +258,17 @@ class Dataset:
     #  Slicing & Copying                                                  
     def slice_by_time(self, start: pd.Timestamp, end: pd.Timestamp) -> Dataset:
         """
-        Return a new Dataset containing only rows from a specified period
+        Return a new Dataset containing only rows from a specified period.
 
         The returned Dataset shares column-role metadata but has its own
         DataFrame copy, so mutations are isolated.
         """
         time_series = self._df[self._time_col]
-        if not pd.api.types.is_datetime64_any_dtype(time_series):
-            time_series = pd.to_datetime(time_series)
         # Ensure timezone-naive comparison
         if time_series.dt.tz is not None:
             time_series = time_series.dt.tz_localize(None)
+            start = start.replace(tzinfo=None)
+            end = end.replace(tzinfo=None)
 
         mask = (time_series >= start) & (time_series < end)
         sliced_df = self._df.loc[mask].copy()

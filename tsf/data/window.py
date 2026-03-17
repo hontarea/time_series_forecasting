@@ -26,25 +26,23 @@ class WindowGenerator:
     Configurable time-based window for walk-forward validation.
 
     Args:
-
-    dataset : Dataset
-        The full dataset (will not be mutated).
-    train_window : str | pd.Timedelta
-        Size of the training window, e.g. "30d" or pd.Timedelta(days=30).
-    test_window : str | pd.Timedelta
-        Size of the testing window that follows each training window.
-    step : str | pd.Timedelta
-        How far the window advances on each iteration.
-    mode : WindowMode | str
-        "sliding" (default) or "expanding".
-    start : str | pd.Timestamp, optional
-        Override the start of the first window (defaults to the earliest
-        timestamp in the dataset).
-    end : str | pd.Timestamp, optional
-        Override the end boundary (defaults to the latest timestamp).
+        dataset : Dataset
+            The full dataset (will not be mutated).
+        train_window : str | pd.Timedelta
+            Size of the training window, e.g. "30d" or pd.Timedelta(days=30).
+        test_window : str | pd.Timedelta
+            Size of the testing window that follows each training window.
+        step : str | pd.Timedelta
+            How far the window advances on each iteration.
+        mode : WindowMode | str
+            "sliding" (default) or "expanding".
+        start : str | pd.Timestamp, optional
+            Override the start of the first window (defaults to the earliest
+            timestamp in the dataset).
+        end : str | pd.Timestamp, optional
+            Override the end boundary (defaults to the latest timestamp).
 
     Example:
-
         wg = WindowGenerator(
             dataset=ds,
             train_window="30d",

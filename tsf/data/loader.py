@@ -19,7 +19,7 @@ _TICK_PRESET: Dict[str, object] = {
         "close": "close",
         "volume": "volume",
     },
-    "use_cols": None,  # None ⇒ keep all CSV columns
+    "use_cols": None,  # None: keep all CSV columns
 }
 
 # Note: add more presets in case of different type of data
@@ -47,22 +47,21 @@ class DataLoader:
         Load a CSV and return a class Dataset.
 
         Args:
-        
-        path : str | Path
-            Path to the CSV file.
-        preset : str, optional
-            One of the registered presets (e.g. "tick").
-            When provided, its defaults are used for any parameter not
-            explicitly supplied by the caller.
-        feature_cols, label_cols, time_col, ohlcv_cols :
-            Override the preset or provide values directly.
-        use_cols : list[str], optional
-            If given, only these columns (plus time_col) are kept from
-            the raw CSV.  Useful for dropping irrelevant columns early.
-        index_col : str | int, optional
-            Passed through to pd.read_csv.
-        **read_csv_kwargs :
-            Any extra keyword arguments forwarded to pd.read_csv.
+            path : str | Path
+                Path to the CSV file.
+            preset : str, optional
+                One of the registered presets (e.g. "tick").
+                When provided, its defaults are used for any parameter not
+                explicitly supplied by the caller.
+            feature_cols, label_cols, time_col, ohlcv_cols :
+                Override the preset or provide values directly.
+            use_cols : list[str], optional
+                If given, only these columns (plus time_col) are kept from
+                the raw CSV.  
+            index_col : str | int, optional
+                Passed through to pd.read_csv.
+            **read_csv_kwargs :
+                Any extra keyword arguments forwarded to pd.read_csv.
         """
         # Resolve preset defaults
         defaults = PRESETS.get(preset, {}) if preset else {}
@@ -81,7 +80,6 @@ class DataLoader:
             keep = [c for c in keep if c in df.columns]
             df = df[keep]
 
-        # Build and return Dataset
         return Dataset(
             dataframe=df,
             feature_cols=feature_cols,
