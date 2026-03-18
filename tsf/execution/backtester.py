@@ -126,10 +126,11 @@ class Backtester:
 
         # Transaction costs (on signal changes only)
         prev_signal = signals.shift(1, fill_value=0.0)
+        window_df["prev_signal"] = prev_signal
 
         # Returns
         gross_log_ret = signals * window_df["actual"]
-        signal_delta = (signals - prev_signal).abs()   
+        signal_delta = (abs(signals - prev_signal)).astype(float) 
         cost = np.log(1 - self.txn_cost) * signal_delta
         net_log_ret = gross_log_ret + cost
 
@@ -142,7 +143,7 @@ class Backtester:
         window_df["capital"] = capital
 
         # Per-window simple returns (for metric computation)
-        strategy_returns = np.exp(net_log_ret) - 1
+        strategy_returns = window_df["capital"] - 1
         strategy_returns.name = "strategy_return"
 
         # Market returns (per-window, for buy-and-hold comparison)
