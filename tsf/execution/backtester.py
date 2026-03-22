@@ -130,7 +130,7 @@ class Backtester:
 
         # Returns
         gross_log_ret = signals * window_df["actual"]
-        signal_delta = (abs(signals - prev_signal)).astype(float) 
+        signal_delta = (signals - prev_signal).abs()
         cost = np.log(1 - self.txn_cost) * signal_delta
         net_log_ret = gross_log_ret + cost
 
@@ -140,10 +140,9 @@ class Backtester:
 
         # Capital (compound via exp) 
         capital = np.exp(net_log_ret.cumsum())
-        window_df["capital"] = capital
 
         # Per-window simple returns (for metric computation)
-        strategy_returns = window_df["capital"] - 1
+        strategy_returns = np.exp(net_log_ret) - 1
         strategy_returns.name = "strategy_return"
 
         # Market returns (per-window, for buy-and-hold comparison)

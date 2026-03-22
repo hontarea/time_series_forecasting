@@ -29,11 +29,10 @@ class Evaluation:
         Compute all metrics at once.
 
         Args:
-        
-        strategy_returns : pd.Series
-            Per-period simple returns.
-        annual_factor : int
-            Periods per year (365 for crypto-hourly, 252 for daily equities).
+            strategy_returns : pd.Series
+                Per-period simple returns.
+            annual_factor : int
+                Periods per year (365 for crypto-hourly, 252 for daily equities).
         """
         return {
             Metric.SHARPE_RATIO.value: Evaluation.sharpe_ratio(strategy_returns, annual_factor),
@@ -45,6 +44,7 @@ class Evaluation:
 
     @staticmethod
     def sharpe_ratio(returns: pd.Series, annual_factor: int = 365) -> float:
+        """Return the annualised Sharpe ratio of the strategy returns."""
         if returns.empty or returns.std() == 0:
             return 0.0
         return (returns.mean() / returns.std()) * np.sqrt(annual_factor)

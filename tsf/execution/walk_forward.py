@@ -18,24 +18,12 @@ class WalkForwardEngine:
     Walk-forward validation runner.
 
     Args:
-        model : BaseModel
-        window : WindowGenerator
-            The window configuration producing train/test splits.
-        scaler : FeatureScaler, optional
-            If provided, the scaler is fit() on each training fold and
-            transform() on both train and test folds.
-        reset_model : bool
-            Whether to call model.reset() before each fold (default True).
-        lookback : int
-            Number of past time steps used as model input. Required
-            (> 0) for torch-based models (DataFormat.TORCH_LOADER).
-            Also controls the number of auto-injected lagged features
-            for tabular models. Default is 336 (14 days of 1-hour data).
-        horizon : int
-            Number of future time steps to predict. Required (> 0) for
-            torch-based models. Should match the test_window of the
-            WindowGenerator (in number of data points). Default is 24
-            (1 day of 1-hour data).
+        model        : BaseModel instance to train and predict with
+        window       : WindowGenerator producing train/test splits
+        scaler       : FeatureScaler fit on each train fold, applied to both train and test (optional)
+        reset_model  : whether to call model.reset() before each fold (default True)
+        lookback     : input steps for torch models; also controls lagged features for tabular models
+        horizon      : output steps to predict; should match WindowGenerator.test_window (default 24)
 
     Example:
         engine = WalkForwardEngine(
@@ -126,20 +114,17 @@ class WalkForwardEngine:
             )
             return train_ds
         return train_ds.slice_by_index(0, n - self.horizon)
-
-    # Run loop
+    
     def run(self, verbose: bool = False) -> pd.DataFrame:
         """
         Execute the walk-forward loop and return all predictions.
 
         Every fold follows the same uniform pipeline:
-            - Trim - remove the last horizon rows from the
-            training set (embargo period).
-            - Reset - optionally reset the model weights.
-            - Scale - fit scaler on the trimmed training set, then
-            transform both the trimmed set and the test set.
-            - Train - fit the model on the trimmed training set.
-            - Predict - generate predictions for the test set.
+            - Trim      - remove the last horizon rows from the training set (embargo period).
+            - Reset     - optionally reset the model weights.
+            - Scale     - fit scaler on the trimmed training set, then transform the full training set and the test set.
+            - Train     - fit the model on the trimmed training set.
+            - Predict   - generate predictions for the test set.
 
         Returns:
             pd.DataFrame
@@ -147,15 +132,32 @@ class WalkForwardEngine:
                 Columns: ["prediction"].
                 Index: aligned with the original Dataset.
         """
-        self._ensure_lagged_features()
-        all_predictions: list[pd.DataFrame] = []
         splits = list(self.window.get_splits())
-
         if not splits:
             return pd.DataFrame()
 
+        all_predictions: list[pd.DataFrame] = []
+        for fold_preds, _, _, _ in self.run_fold_by_fold(verbose=verbose):
+            all_predictions.append(fold_preds)
+
+        return self._finalize(all_predictions)
+
+
+    def run_fold_by_fold(self, verbose: bool = False):
+        """
+        Generator that yields ``(fold_preds, train_ds, test_ds, fold_idx)``
+        per fold, allowing interleaved RL training between folds.
+
+        Yields:
+            fold_preds : pd.DataFrame  - predictions for this test window
+            train_ds   : Dataset       - full (unscaled) training window
+            test_ds    : Dataset       - test window (scaled if scaler set)
+            fold_idx   : int           - zero-based fold index
+        """
+        self._ensure_lagged_features()
+        splits = list(self.window.get_splits())
+
         for fold_idx, (train_ds, test_ds) in enumerate(splits):
-            # Trim
             trimmed_ds = self._trim_train(train_ds)
 
             if verbose:
@@ -166,27 +168,23 @@ class WalkForwardEngine:
                     f"test={len(test_ds)} rows"
                 )
 
-            # Reset
             if self.reset_model:
                 self.model.reset()
 
-            # Scale (fit on trimmed, transform trimmed + test)
             if self.scaler is not None:
                 self.scaler.fit(trimmed_ds)
                 self.scaler.transform(trimmed_ds)
                 self.scaler.transform(test_ds)
                 self.scaler.transform(train_ds)
 
-            # Train on trimmed, predict on test
             fold_preds = self._dispatch_fold(
                 trimmed_ds, test_ds, fold_idx,
                 train=True,
                 full_train_ds=train_ds,
             )
 
-            all_predictions.append(fold_preds)
+            yield fold_preds, train_ds, test_ds, fold_idx
 
-        return self._finalize(all_predictions)
 
     # Fold dispatch helpers
     def _dispatch_fold(
@@ -367,7 +365,8 @@ class WalkForwardEngine:
 
     # Model persistence
     def save_model(self, path: str | Path) -> None:
-        """Save the model from the last completed fold.
+        """
+        Save the model from the last completed fold.
 
         After run() completes, self.model holds the weights
         trained on the most recent training window.  This is the model
