@@ -14,11 +14,10 @@ class FeatureScaler:
     Wraps an sklearn scaler to operate on class Dataset feature columns.
 
     Args:
-        method : str
+        method  : str                 
             "standard" (Z-score), "minmax" (0-1), or "robust"
-        columns : list[str], optional
-            Subset of feature columns to scale.  If None, all feature
-            columns are scaled.
+        columns : list[str], optional 
+            subset of feature columns to scale,  if None, all feature columns are scaled.
     """
 
     _SCALERS = {

@@ -22,14 +22,12 @@ class BaseStrategy(ABC):
         Map predictions to position signals.
 
         Args:
-
-        predictions : pd.Series
-            Raw model output, indexed by time.
+            predictions : pd.Series
+                Raw model output, indexed by time.
 
         Returns:
-
-        pd.Series
-            Position signals, same index as input.
+            pd.Series
+                Position signals, same index as input.
         """
 
     def calculate_returns(
@@ -41,16 +39,14 @@ class BaseStrategy(ABC):
         Compute strategy simple returns = position * market return.
 
         Args:
-
-        predictions : pd.Series
-            Model predictions.
-        market_returns : pd.Series
-            Market simple returns.
+            predictions : pd.Series
+                Model predictions.
+            market_returns : pd.Series
+                Market simple returns.
 
         Returns:
-        
-        pd.Series
-            Strategy returns.
+            pd.Series
+                Strategy returns.
         """
         signals = self.get_signal(predictions)
         aligned_signals = signals.reindex(market_returns.index).fillna(0)
@@ -73,11 +69,10 @@ class ThresholdStrategy(BaseStrategy):
     short when below "lower", flat otherwise.
 
     Args:
-    
-    upper : float
-        Threshold above which to go long (default 0.0).
-    lower : float
-        Threshold below which to go short (default 0.0).
+        upper : float
+            Threshold above which to go long (default 0.0).
+        lower : float
+            Threshold below which to go short (default 0.0).
     """
 
     def __init__(self, upper: float = 0.0, lower: float = 0.0):

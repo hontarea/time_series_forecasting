@@ -11,17 +11,13 @@ class Dataset:
     """
     Unified data container for time-series modelling.
 
-    Args: 
-        dataframe : pd.DataFrame
-            The underlying tabular data.
-        feature_cols : list[str], optional
-        label_cols : list[str], optional
-        time_col : str, default "open_time_iso"
-            Name of the datetime column used for temporal ordering.
-        ohlcv_cols : dict, optional
-            Mapping of canonical names with actual column names.
+    Args:
+        dataframe    : the underlying tabular data
+        feature_cols : input feature column names (optional)
+        label_cols   : target label column names (optional)
+        time_col     : datetime column used for temporal ordering (default "open_time_iso")
+        ohlcv_cols   : mapping of canonical OHLCV names to actual column names (optional)
     """
-
     # Default OHLCV mapping                 
     DEFAULT_OHLCV = {
         "open": "open",
@@ -64,18 +60,15 @@ class Dataset:
 
     @property
     def feature_cols(self) -> List[str]:
-        """Ordered list of current feature column names."""
         # Return in a stable order that respects the DataFrame column order
         return [c for c in self._df.columns if c in self._feature_cols]
 
     @property
     def label_cols(self) -> List[str]:
-        """Ordered list of current label column names."""
         return [c for c in self._df.columns if c in self._label_cols]
 
     @property
     def ohlcv(self) -> dict:
-        """OHLCV column name mapping."""
         return self._ohlcv
 
     @property
@@ -87,7 +80,7 @@ class Dataset:
         return self._df.shape
 
 
-    # OHLCV getters                                       
+    # OHLCV getters
     @property
     def open(self) -> pd.Series:
         return self._df[self._ohlcv["open"]]
@@ -119,10 +112,8 @@ class Dataset:
         Join new columns to the underlying DataFrame and register them as features.
 
         Args:
-            data : DataFrame | Series
-                The new feature data.  Must be index-aligned or joinable via "on".
-            on : str, optional
-                Column name to join on (if not using index alignment).
+            data : DataFrame | Series - the new feature data.
+            on   : str                - optionalcolumn name to join on if not using index alignment.
         """
         if on:
             self._df = self._df.join(data, on=on)
@@ -197,15 +188,10 @@ class Dataset:
         - Y[i] = labels[i + lookback : i + lookback + horizon]  shape (horizon, L)
 
         Args:
-            lookback : int
-                Number of past time steps the model sees as input.
-            horizon : int
-                Number of future time steps the model must predict.
-            batch_size : int
-                Mini-batch size (default 32).
-            shuffle : bool
-                Whether to shuffle samples (True during training,
-                False during evaluation).
+            lookback   : int  - number of past time steps the model sees as input.
+            horizon    : int  - number of future time steps the model must predict.
+            batch_size : int  - mini-batch size (default 32).
+            shuffle    : bool - whether to shuffle samples (True during training, False during evaluation).
 
         Returns:
             torch.utils.data.DataLoader
@@ -255,7 +241,7 @@ class Dataset:
         )
 
 
-    #  Slicing & Copying                                                  
+    # Slicing & Copying                                                  
     def slice_by_time(self, start: pd.Timestamp, end: pd.Timestamp) -> Dataset:
         """
         Return a new Dataset containing only rows from a specified period.
@@ -314,11 +300,14 @@ class Dataset:
         if not pd.api.types.is_datetime64_any_dtype(self._df[self._time_col]):
             try:
                 self._df = self._df.copy()
-                self._df[self._time_col] = pd.to_datetime(self._df[self._time_col])
+                self._df[self._time_col] = pd.to_datetime(self._df[self._time_col], utc=True)
             except Exception as e:
                 raise ValueError(
                     f"Could not parse time column '{self._time_col}': {e}"
                 ) from e
+
+        if self._df[self._time_col].dt.tz is not None:
+            self._df[self._time_col] = self._df[self._time_col].dt.tz_localize(None)
 
         self._df.sort_values(by=self._time_col, ascending=True, inplace=True, ignore_index=False)
 

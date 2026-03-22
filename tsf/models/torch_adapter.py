@@ -78,7 +78,6 @@ class TorchAdapter(BaseModel):
     def data_format(self) -> DataFormat:
         return DataFormat.TORCH_LOADER
 
-    # Core fuctions
     def fit(self, loader: "TorchDataLoader") -> None:
         """
         Train the module for self.epochs over the given DataLoader.
@@ -162,7 +161,7 @@ class TorchAdapter(BaseModel):
         with torch.no_grad():
             for X_batch, _ in X:
                 X_batch = X_batch.to(self.device)
-                preds = self.module(X_batch).cpu().numpy() # Calculate the predicitons and move to the CPU 
+                preds = self.module(X_batch).cpu().numpy() # Calculate the predictions and move to the CPU
                 all_preds.append(preds)
 
         return np.concatenate(all_preds, axis=0)
@@ -213,6 +212,7 @@ class TorchAdapter(BaseModel):
 
     @staticmethod
     def _check_torch() -> None:
+        """Raise ImportError if PyTorch is not installed."""
         if not _TORCH_AVAILABLE:
             raise ImportError(
                 "PyTorch is required for TorchAdapter. "

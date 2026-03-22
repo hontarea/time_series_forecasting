@@ -58,7 +58,11 @@ class Optimizer:
         self.study: Optional[optuna.Study] = None
 
     def run(self) -> None:
-        """Create an Optuna study and run the optimisation."""
+        """
+        Create an Optuna study and run n_trials optimisation trials.
+
+        Results are stored in self.study; access via best_params and best_value.
+        """
         self.study = optuna.create_study(
             direction=self.direction,
             sampler=self.sampler,
@@ -93,7 +97,6 @@ class Optimizer:
             print(f"Trial {trial.number} pruned/failed: {e}")
             raise optuna.TrialPruned()
 
-    # Funcitons to convert dictionary configuration for params into instructions for Optuna
     def _suggest_params(self, trial: optuna.Trial) -> Dict[str, Any]:
         params: Dict[str, Any] = {}
         for name, (ptype, *args) in self.search_space.items():
@@ -105,7 +108,6 @@ class Optimizer:
             params[name] = suggest_fn(name, *args, **kwargs)
         return params
 
-    # Results                                                            
     @property
     def best_params(self) -> Dict[str, Any]:
         return self.study.best_params if self.study else {}

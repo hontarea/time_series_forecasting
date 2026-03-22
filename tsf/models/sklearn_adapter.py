@@ -33,13 +33,15 @@ class SklearnAdapter(BaseModel):
         self.estimator = estimator
         self.is_classifier_: bool = is_classifier(estimator)
 
-    # Data format                                                        
+    # Data format
     @property
     def data_format(self) -> DataFormat:
+        """Return TABULAR to indicate this adapter uses (X, y) arrays."""
         return DataFormat.TABULAR
 
-    #  Core methods                                                 
+    #  Core methods
     def fit(self, X: pd.DataFrame, y: pd.DataFrame | pd.Series) -> None:
+        """Fit the estimator; wraps in MultiOutputRegressor for multi-target y."""
         if isinstance(y, pd.DataFrame):
             y = y.to_numpy()
         if hasattr(y, "ndim") and y.ndim > 1 and y.shape[1] == 1:
@@ -51,6 +53,7 @@ class SklearnAdapter(BaseModel):
         self.estimator.fit(X, y)
 
     def predict(self, X: pd.DataFrame) -> pd.DataFrame:
+        """Return probabilities for classifiers, point estimates for regressors."""
         if self.is_classifier_:
             if hasattr(self.estimator, "predict_proba"):
                 probs = self.estimator.predict_proba(X)
@@ -71,6 +74,7 @@ class SklearnAdapter(BaseModel):
         self.estimator.set_params(**params)
 
     def get_params(self) -> Dict:
+        """Return the underlying estimator's hyper-parameters."""
         return self.estimator.get_params()
 
     # Persistence                                                        

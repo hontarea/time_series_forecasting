@@ -22,13 +22,24 @@ _TICK_PRESET: Dict[str, object] = {
     "use_cols": None,  # None: keep all CSV columns
 }
 
+# Single close-price column; no open/high/low/volume present
+_UNIVARIATE_PRESET: Dict[str, object] = {
+    "feature_cols": ["close"],
+    "time_col": "open_time_iso",
+    "ohlcv_cols": {"close": "close"},
+    "use_cols": ["close"],  # keep only time_col + close from the CSV
+}
+
 # Note: add more presets in case of different type of data
 
 PRESETS: Dict[str, Dict[str, object]] = {
     "tick": _TICK_PRESET,
+    "univariate": _UNIVARIATE_PRESET,
 }
 
 class DataLoader:
+    """Loads raw CSV files into Dataset objects, with optional named presets."""
+
     @classmethod
     def from_csv(
         cls,
@@ -44,24 +55,20 @@ class DataLoader:
         **read_csv_kwargs,
     ) -> Dataset:
         """
-        Load a CSV and return a class Dataset.
+        Load a CSV and return a Dataset.
 
         Args:
-            path : str | Path
-                Path to the CSV file.
-            preset : str, optional
-                One of the registered presets (e.g. "tick").
-                When provided, its defaults are used for any parameter not
-                explicitly supplied by the caller.
-            feature_cols, label_cols, time_col, ohlcv_cols :
-                Override the preset or provide values directly.
-            use_cols : list[str], optional
-                If given, only these columns (plus time_col) are kept from
-                the raw CSV.  
-            index_col : str | int, optional
-                Passed through to pd.read_csv.
-            **read_csv_kwargs :
-                Any extra keyword arguments forwarded to pd.read_csv.
+            path             : path to the CSV file
+            preset           : registered preset name (e.g. "tick"); its defaults
+                               apply for any parameter not explicitly supplied
+            feature_cols     : override preset or provide feature columns directly
+            label_cols       : override preset or provide label columns directly
+            time_col         : override preset or provide the datetime column name
+            ohlcv_cols       : override preset or provide the OHLCV column mapping
+            use_cols         : if given, only these columns (plus time_col) are
+                               kept from the raw CSV (optional)
+            index_col        : passed through to pd.read_csv (optional)
+            **read_csv_kwargs : any extra keyword arguments forwarded to pd.read_csv
         """
         # Resolve preset defaults
         defaults = PRESETS.get(preset, {}) if preset else {}
@@ -76,7 +83,7 @@ class DataLoader:
 
         # Optionally filter out the columns
         if use_cols is not None:
-            keep = list(dict.fromkeys([time_col] + use_cols))   # Use dict.fromheys to deduplicate, preserve order
+            keep = list(dict.fromkeys([time_col] + use_cols))   # Use dict.fromkeys to deduplicate, preserve order
             keep = [c for c in keep if c in df.columns]
             df = df[keep]
 
