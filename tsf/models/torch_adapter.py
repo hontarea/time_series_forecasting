@@ -78,15 +78,26 @@ class TorchAdapter(BaseModel):
     def data_format(self) -> DataFormat:
         return DataFormat.TORCH_LOADER
 
-    def fit(self, loader: "TorchDataLoader") -> None:
+    def fit(
+        self,
+        loader: "TorchDataLoader",
+        val_loader: "TorchDataLoader | None" = None,
+    ) -> "float | None":
         """
         Train the module for self.epochs over the given DataLoader.
 
-        Args: 
-        
+        Args:
+
         loader : torch.utils.data.DataLoader
             Yields (X_batch, y_batch) tensors.  Built by the
-            execution layer via Dataset.get_torch_loader().
+            execution layer via Dataset.get_sequence_loader().
+        val_loader : torch.utils.data.DataLoader, optional
+            Held-out validation loader.  When provided, early stopping
+            monitors validation loss instead of training loss, and the
+            best validation loss is returned.
+
+        Returns:
+            Best validation loss (float) if val_loader is given, else None.
         """
         self._check_torch()
         if self.module is None:
@@ -98,8 +109,11 @@ class TorchAdapter(BaseModel):
         best_loss = float("inf")
         patience_counter = 0
         n_samples = len(loader.dataset)
+        n_val = len(val_loader.dataset) if val_loader is not None else 0
 
         for epoch in range(self.epochs):
+            # Training pass
+            self.module.train()
             epoch_loss = 0.0
             for X_batch, y_batch in loader:
                 X_batch = X_batch.to(self.device)
@@ -110,20 +124,42 @@ class TorchAdapter(BaseModel):
                 preds = self.module(X_batch, y_batch)
                 loss = self.loss_fn(preds, y_batch)
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.module.parameters(), max_norm=1.0)
                 optimizer.step()
                 epoch_loss += loss.item() * X_batch.size(0)
 
             epoch_loss /= n_samples
 
+            # Validation pass
+            if val_loader is not None:
+                self.module.eval()
+                val_epoch_loss = 0.0
+                with torch.no_grad():
+                    for X_b, y_b in val_loader:
+                        X_b = X_b.to(self.device)
+                        y_b = y_b.to(self.device)
+                        val_epoch_loss += self.loss_fn(
+                            self.module(X_b, y_b), y_b
+                        ).item() * X_b.size(0)
+                val_epoch_loss /= n_val
+                monitor_loss = val_epoch_loss
+            else:
+                monitor_loss = epoch_loss
+
             # Early stopping
             if self.early_stopping_patience > 0:
-                if epoch_loss < best_loss:
-                    best_loss = epoch_loss
+                if monitor_loss < best_loss:
+                    best_loss = monitor_loss
                     patience_counter = 0
                 else:
                     patience_counter += 1
                     if patience_counter >= self.early_stopping_patience:
                         break
+            else:
+                if monitor_loss < best_loss:
+                    best_loss = monitor_loss
+
+        return best_loss if val_loader is not None else None
 
     def predict(self, X) -> np.ndarray:
         """

@@ -42,7 +42,7 @@ class BaseModel(ABC):
 
     # Core methods                                                      
     @abstractmethod
-    def fit(self, X, y=None) -> None:
+    def fit(self, X, y=None, val_loader=None) -> "float | None":
         """Train the model.  Signature depends on data_format."""
 
     @abstractmethod

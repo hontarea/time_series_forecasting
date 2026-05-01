@@ -40,7 +40,7 @@ class SklearnAdapter(BaseModel):
         return DataFormat.TABULAR
 
     #  Core methods
-    def fit(self, X: pd.DataFrame, y: pd.DataFrame | pd.Series) -> None:
+    def fit(self, X: pd.DataFrame, y: pd.DataFrame | pd.Series, val_loader=None) -> None:
         """Fit the estimator; wraps in MultiOutputRegressor for multi-target y."""
         if isinstance(y, pd.DataFrame):
             y = y.to_numpy()

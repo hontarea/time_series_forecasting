@@ -107,11 +107,11 @@ class TradingEnv(gym.Env):
     ) -> Tuple[np.ndarray, float, bool, bool, Dict]:
         target_pos = self._ACTION_MAP[int(action)]
 
-        cost = self.txn_cost * abs(target_pos - self._position)
+        cost = np.log(1 - self.txn_cost * abs(target_pos - self._position))
         self._position = float(target_pos)
 
         actual_ret = float(self._actual_returns[self._hour])
-        step_pnl = self._position * actual_ret - cost
+        step_pnl = self._position * actual_ret + cost
         self._cumulative_return += step_pnl
         self._hour += 1
 

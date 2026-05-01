@@ -1,37 +1,34 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Tuple, Type
+from typing import Any, Dict, Optional, Tuple
 
+import numpy as np
 import optuna
-import pandas as pd
 
-from tsf.data.dataset import Dataset
-from tsf.execution.backtester import Backtester
-from tsf.execution.strategy import BaseStrategy, SignBasedStrategy
 from tsf.execution.walk_forward import WalkForwardEngine
-from tsf.utils.evaluation import Evaluation, Metric
 
 
 class Optimizer:
     """
     Optuna hyperparameter optimiser.
 
+    Scores each trial by the mean inner-validation loss across all
+    walk-forward folds.  The test window is never used during
+    optimisation, preventing information leakage.
+
     Args:
         engine : WalkForwardEngine
             The walk-forward engine whose model params will be tuned.
-        dataset : Dataset
-            Full market dataset (used by the backtester).
-        metric : Metric
-            The metric to optimise (e.g. Metric.SHARPE_RATIO).
+            Must be configured with val_ratio > 0 so that each fold
+            produces a validation loss.
         search_space : dict
             Mapping of param name and (type, *args[, kwargs_dict]).
-            Example: {"alpha": ("float", 1e-2, 1e2, {"log": True})}.
-        strategy : BaseStrategy, optional
-            Strategy for return calculation (default SignBasedStrategy).
+            Example: {"lr": ("float", 1e-4, 1e-1, {"log": True})}.
         n_trials : int
             Number of Optuna trials (default 20).
         direction : str
-            "maximize" or "minimize" (default "maximize").
+            "minimize" or "maximize" (default "minimize" — lower val
+            loss is better).
         sampler : optuna.samplers.BaseSampler, optional
             Custom Optuna sampler.
     """
@@ -39,19 +36,13 @@ class Optimizer:
     def __init__(
         self,
         engine: WalkForwardEngine,
-        dataset: Dataset,
-        metric: Metric,
         search_space: Dict[str, Tuple],
-        strategy: Optional[BaseStrategy] = None,
         n_trials: int = 20,
-        direction: str = "maximize",
+        direction: str = "minimize",
         sampler: Optional[optuna.samplers.BaseSampler] = None,
     ):
         self.engine = engine
-        self.dataset = dataset
-        self.metric = metric
         self.search_space = search_space
-        self.strategy = strategy or SignBasedStrategy()
         self.n_trials = n_trials
         self.direction = direction
         self.sampler = sampler
@@ -74,27 +65,27 @@ class Optimizer:
             params = self._suggest_params(trial)
             self.engine.set_model_params(params)
 
-            predictions = self.engine.run()
+            val_losses: list[float] = []
+            for _, _, _, fold_idx, fold_val_loss in self.engine.run_fold_by_fold():
+                if fold_val_loss is None:
+                    raise optuna.TrialPruned()
+                val_losses.append(fold_val_loss)
+                running_avg = float(np.mean(val_losses))
+                trial.report(running_avg, fold_idx)
+                if trial.should_prune():
+                    raise optuna.TrialPruned()
 
-            if predictions.empty or "prediction" not in predictions.columns:
+            if not val_losses:
                 raise optuna.TrialPruned()
 
-            bt = Backtester(
-                dataset=self.dataset,
-                strategy=self.strategy,
-                horizon=self.engine.horizon,
-            )
-            result = bt.run(predictions["prediction"])
-            score = result["metrics"].get(self.metric.value)
-
-            if score is None:
-                raise ValueError(f"Metric '{self.metric.value}' not computed.")
-
-            print(f"Trial {trial.number}: {self.metric.value} = {score:.4f}")
+            score = float(np.mean(val_losses))
+            print(f"Trial {trial.number}: mean_val_loss = {score:.6f}")
             return score
 
+        except optuna.TrialPruned:
+            raise
         except Exception as e:
-            print(f"Trial {trial.number} pruned/failed: {e}")
+            print(f"Trial {trial.number} failed: {e}")
             raise optuna.TrialPruned()
 
     def _suggest_params(self, trial: optuna.Trial) -> Dict[str, Any]:

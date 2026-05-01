@@ -67,7 +67,7 @@ class Orchestrator:
 
         close = self.dataset.close
 
-        for fold_preds, train_ds, test_ds, fold_idx in self.engine.run_fold_by_fold(
+        for fold_preds, train_ds, test_ds, fold_idx, _ in self.engine.run_fold_by_fold(
             verbose=self.verbose
         ):
             # Offline agent learning
