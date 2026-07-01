@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -107,6 +108,7 @@ class TorchAdapter(BaseModel):
         optimizer = self.optimizer_cls(self.module.parameters(), lr=self.lr)
 
         best_loss = float("inf")
+        best_state = None
         patience_counter = 0
         n_samples = len(loader.dataset)
         n_val = len(val_loader.dataset) if val_loader is not None else 0
@@ -146,18 +148,26 @@ class TorchAdapter(BaseModel):
             else:
                 monitor_loss = epoch_loss
 
+            # Track the best epoch and checkpoint its weights so the deployed
+            # model matches the returned (best) validation loss
+            improved = monitor_loss < best_loss
+            if improved:
+                best_loss = monitor_loss
+                if val_loader is not None:
+                    best_state = copy.deepcopy(self.module.state_dict())
+
             # Early stopping
             if self.early_stopping_patience > 0:
-                if monitor_loss < best_loss:
-                    best_loss = monitor_loss
+                if improved:
                     patience_counter = 0
                 else:
                     patience_counter += 1
                     if patience_counter >= self.early_stopping_patience:
                         break
-            else:
-                if monitor_loss < best_loss:
-                    best_loss = monitor_loss
+
+        # Restore best-epoch weights
+        if best_state is not None:
+            self.module.load_state_dict(best_state)
 
         return best_loss if val_loader is not None else None
 
