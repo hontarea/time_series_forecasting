@@ -8,7 +8,7 @@ import pandas as pd
 from tsf.data.dataset import Dataset
 
 
-# Registry for technical indicator / returns                       
+# Registry for technical indicator / returns transforms
 _REGISTRY: Dict[str, Callable[..., None]] = {} # ... - we do not care about the arguments a func has
 
 
@@ -29,107 +29,124 @@ def register(name: str):
     return decorator
 
 
-# Technical Indicators                                               
+# Shared helpers
 
-# Momentum  
+def _log_returns(series: pd.Series) -> pd.Series:
+    """One-step log return  ln(P_t / P_{t-1}).  Causal: uses only P_t and P_{t-1}."""
+    return np.log(series / series.shift(1))
+
+
+def _ewm_vol(returns: pd.Series, span: int) -> pd.Series:
+    """
+    Exponentially weighted standard deviation of returns over ``span``.
+    """
+    return returns.ewm(span=span, min_periods=span, adjust=False).std()
+
+
+# Returns
+@register("LOG_RETURN_1")
+def _log_return_1(ds: Dataset, column: str = "close", **_kw) -> None:
+    ds.add_features(_log_returns(ds.df[column]).rename("log_return_1"))
+
+@register("VOL_SCALED_RETURN")
+def _vol_scaled_return(ds: Dataset, column: str = "close", span: int = 72, eps: float = 1e-8, **_kw) -> None:
+    """
+    Return divided by a recent estimate of its own volatility.
+
+    Puts returns from calm and turbulent periods on a comparable scale. The
+    volatility is the exponentially weighted std of returns, ``eps`` guards 
+    against division by zero in flat periods.
+    """
+    r = _log_returns(ds.df[column])
+    vol = _ewm_vol(r, span)
+    ds.add_features((r / (vol + eps)).rename("vol_scaled_return"))
+
+# Volatility
+@register("EWM_VOLATILITY")
+def _ewm_volatility(ds: Dataset, column: str = "close", span: int = 72, **_kw) -> None:
+    """
+    Exponentially weighted std of one-step log returns, as a feature in its own
+    right - the current level of market turbulence, direction-independent.
+    """
+    r = _log_returns(ds.df[column])
+    ds.add_features(_ewm_vol(r, span).rename("ewm_volatility"))
+
+# Technical indicators
 @register("RSI")
 def _rsi(ds: Dataset, period: int = 14, **_kw) -> None:
+    """Relative Strength Index (Wilder 1978)"""
     import talib as ta
-    feature = ta.RSI(ds.close, timeperiod=period).rename("rsi")
-    ds.add_features(feature)
+    ds.add_features(ta.RSI(ds.close, timeperiod=period).rename("rsi"))
 
-@register("KAMA")
-def _kama(ds: Dataset, period: int = 30, **_kw) -> None:
-    import talib as ta
-    feature = ta.KAMA(ds.close, timeperiod=period).rename("kama")
-    ds.add_features(feature)
+@register("MACD_NORM")
+def _macd_norm(
+    ds: Dataset,
+    column: str = "close",
+    fast: int = 12,
+    slow: int = 26,
+    norm_period: int = 72,
+    eps: float = 1e-8,
+    **_kw,
+) -> None:
+    """
+    Volatility-normalized MACD line.
 
-@register("SWMA")
-def _swma(ds: Dataset, **_kw) -> None:
-    c = ds.close
-    swma = (c + 2 * c.shift(1) + 2 * c.shift(2) + c.shift(3)) / 6
-    ds.add_features(swma.rename("swma"))
-
-@register("HLC3")
-def _hlc3(ds: Dataset, **_kw) -> None:
-    hlc3 = ((ds.high + ds.low + ds.close) / 3).rename("hlc3")
-    ds.add_features(hlc3)
-
-# Trend 
-@register("EMA")
-def _ema(ds: Dataset, period: int = 12, **_kw) -> None:
-    import talib as ta
-    feature = ta.EMA(ds.close, timeperiod=period).rename("ema")
-    ds.add_features(feature)
-
-@register("TEMA")
-def _tema(ds: Dataset, period: int = 12, **_kw) -> None:
-    import talib as ta
-    feature = ta.TEMA(ds.close, timeperiod=period).rename("tema")
-    ds.add_features(feature)
-
-# Volatility  
-@register("ATR")
-def _atr(ds: Dataset, period: int = 14, **_kw) -> None:
-    import talib as ta
-    feature = ta.ATR(ds.high, ds.low, ds.close, timeperiod=period).rename("atr")
-    ds.add_features(feature)
-
-@register("BBANDS")
-def _bbands(ds: Dataset, period: int = 20, nbdevup: int = 2, nbdevdn: int = 2, matype: int = 0, **_kw) -> None:
-    import talib as ta
-    upper, middle, lower = ta.BBANDS(
-        ds.close, timeperiod=period, nbdevup=nbdevup, nbdevdn=nbdevdn, matype=matype
-    )
-    ds.add_features(upper.rename("bb_upper"))
-    ds.add_features(middle.rename("bb_middle"))
-    ds.add_features(lower.rename("bb_lower"))
+    Raw MACD = (fast EMA - slow EMA) of price is expressed in price units and
+    therefore depends on the price level. Dividing by a recent price-scale
+    volatility (rolling std of price) removes that dependence and makes the
+    values comparable across assets.
+    """
+    p = ds.df[column]
+    macd = p.ewm(span=fast, adjust=False).mean() - p.ewm(span=slow, adjust=False).mean()
+    price_std = p.rolling(window=norm_period, min_periods=norm_period).std()
+    ds.add_features((macd / (price_std + eps)).rename("macd_norm"))
 
 # Volume
-@register("OBV")
-def _obv(ds: Dataset, **_kw) -> None:
-    import talib as ta
-    feature = ta.OBV(ds.close, ds.volume).rename("obv")
-    ds.add_features(feature)
+@register("LOG_VOLUME")
+def _log_volume(ds: Dataset, column: str = "volume", **_kw) -> None:
+    v = ds.df[column]
+    ds.add_features(np.log(v.where(v > 0)).rename("log_volume"))
 
-@register("MFI")
-def _mfi(ds: Dataset, period: int = 14, **_kw) -> None:
-    import talib as ta
-    feature = ta.MFI(ds.high, ds.low, ds.close, ds.volume, timeperiod=period).rename("mfi")
-    ds.add_features(feature)
 
-# Label transforms 
+# Labels
 @register("LOG_RETURN")
 def _log_return(ds: Dataset, column: str = "close", horizon: int = 1, **_kw) -> None:
     """
-    Forward cumulative log return:  ln(P_{t+horizon} / P_t).
+    Forward cumulative log return:  ln(P_{t+horizon} / P_t)
     """
     series = ds.df[column]
     log_ret = np.log(series.shift(-horizon) / series)
     ds.add_labels(log_ret.rename("log_return"))
 
-@register("LAGGED_RETURNS")
-def _lagged_returns(ds: Dataset, column: str = "close", lags: int = 336, **_kw) -> None:
-    """
-    Create lagged log-return features for tabular (sklearn) models.
-
-    Computes the 1-step log return  ln(P_t / P_{t-1})  and then adds
-    *lags* shifted copies: log_return_lag_1 … log_return_lag_{lags}.
-    Each lag uses only past data so there is no look-ahead leakage.
-    """
-    series = ds.df[column]
-    log_ret = np.log(series / series.shift(1))
-    for lag in range(1, lags + 1):
-        ds.add_features(log_ret.shift(lag).rename(f"log_return_lag_{lag}"))
-
-
 @register("SIMPLE_RETURN")
 def _simple_return(ds: Dataset, column: str = "close", shift: int = -1, **_kw) -> None:
     """Percentage change, shifted for forward-looking labels."""
     series = ds.df[column]
-    ret = series.pct_change()
-    ret = ret.shift(shift)
+    ret = series.pct_change().shift(shift)
     ds.add_labels(ret.rename("simple_return"))
+
+
+# Tabular helper
+@register("LAGGED_RETURNS")
+def _lagged_returns(ds: Dataset, column: str = "close", lags: int = 336, **_kw) -> None:
+    """
+    Create lagged log-return features for tabular (sklearn) models.
+    """
+    log_ret = _log_returns(ds.df[column])
+    for lag in range(1, lags + 1):
+        ds.add_features(log_ret.shift(lag).rename(f"log_return_lag_{lag}"))
+
+
+# Canonical shared feature set for all the models
+DEFAULT_FEATURE_SET: List[Dict[str, Any]] = [
+    {"name": "LOG_RETURN_1"},
+    {"name": "VOL_SCALED_RETURN", "span": 72},
+    {"name": "EWM_VOLATILITY", "span": 72},
+    {"name": "RSI", "period": 14},
+    {"name": "MACD_NORM", "fast": 12, "slow": 26, "norm_period": 72},
+    {"name": "LOG_VOLUME"},
+]
+
 
 class FeatureEngineer:
     """
@@ -142,9 +159,8 @@ class FeatureEngineer:
 
     Example:
         config = [
-            {"name": "RSI", "period": 14},
-            {"name": "BBANDS"},
-            {"name": "log_return"},
+            *DEFAULT_FEATURE_SET,
+            {"name": "log_return", "horizon": 1},   # forward label
         ]
         FeatureEngineer(config).apply(dataset)
     """

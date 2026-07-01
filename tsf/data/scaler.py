@@ -72,7 +72,6 @@ class FeatureScaler:
         """
         if not self.scale_labels or self._label_scaler is None:
             return arr
-        print("Executed inverse scaler on labels")
         return self._label_scaler.inverse_transform(arr)
 
     def fit_transform(self, dataset: Dataset) -> Dataset:
