@@ -6,6 +6,8 @@ import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
 
+from tsf.utils.costs import transaction_cost_logret
+
 
 class TradingEnv(gym.Env):
     """
@@ -37,6 +39,9 @@ class TradingEnv(gym.Env):
     # Map discrete action to target position
     _ACTION_MAP = {0: -1, 1: 0, 2: 1}
 
+    # Supported reward functions
+    _VALID_REWARD_FNS = ("raw",)
+
     def __init__(
         self,
         horizon: int = 24,
@@ -49,7 +54,10 @@ class TradingEnv(gym.Env):
         self.horizon = horizon
         self.txn_cost = txn_cost
         self.carry_position = carry_position
-        assert reward_fn in ("raw"), "reward_fn must be 'raw'"
+        if reward_fn not in self._VALID_REWARD_FNS:
+            raise ValueError(
+                f"reward_fn must be one of {self._VALID_REWARD_FNS}, got {reward_fn!r}"
+            )
         self.reward_fn = reward_fn
 
         # Spaces
@@ -107,7 +115,7 @@ class TradingEnv(gym.Env):
     ) -> Tuple[np.ndarray, float, bool, bool, Dict]:
         target_pos = self._ACTION_MAP[int(action)]
 
-        cost = np.log(1 - self.txn_cost * abs(target_pos - self._position))
+        cost = transaction_cost_logret(self.txn_cost, target_pos - self._position)
         self._position = float(target_pos)
 
         actual_ret = float(self._actual_returns[self._hour])
@@ -131,6 +139,7 @@ class TradingEnv(gym.Env):
         """Compute per-step reward (currently raw step P&L)."""
         if self.reward_fn == "raw":
             return step_pnl
+        raise ValueError(f"Unsupported reward_fn: {self.reward_fn!r}")
 
     def _obs(self) -> np.ndarray:
         """Build and return the current observation vector."""

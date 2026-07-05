@@ -7,6 +7,7 @@ import pandas as pd
 
 from tsf.data.dataset import Dataset
 from tsf.execution.strategy import BaseStrategy, SignBasedStrategy
+from tsf.utils.costs import transaction_cost_logret
 from tsf.utils.evaluation import Evaluation
 
 
@@ -36,7 +37,7 @@ class Backtester:
 
     Example
         bt = Backtester(dataset, strategy=SignBasedStrategy(), horizon=24)
-        result = bt.run(predictions["prediction"])
+        result = bt.run(predictions["prediction"], annual_factor=8760)
         print(result["metrics"])
     """
 
@@ -89,7 +90,7 @@ class Backtester:
         )
 
 
-    def run(self, predictions: pd.Series, annual_factor: int = 365) -> Dict:
+    def run(self, predictions: pd.Series, annual_factor: int) -> Dict:
         """
         Execute the per-window backtest.
 
@@ -97,8 +98,8 @@ class Backtester:
             predictions : pd.Series
                 Model predictions indexed to align with the dataset.
             annual_factor : int
-                Number of non-overlapping windows per year for
-                annualisation (default 365 for daily windows).
+                Number of periods per year for annualisation 
+                (8760 for hourly bars, 365 for daily windows).
 
         Returns:
             dict
@@ -130,8 +131,7 @@ class Backtester:
 
         # Returns
         gross_log_ret = signals * window_df["actual"]
-        signal_delta = (signals - prev_signal).abs()
-        cost = np.log(1 - self.txn_cost) * signal_delta
+        cost = transaction_cost_logret(self.txn_cost, signals - prev_signal)
         net_log_ret = gross_log_ret + cost
 
         window_df["gross_log_return"] = gross_log_ret
@@ -149,10 +149,19 @@ class Backtester:
         market_returns = np.exp(window_df["actual"]) - 1
         market_returns.name = "market_return"
 
-        # Metrics 
+        # Metrics
         metrics = Evaluation.compute_all(
             strategy_returns, annual_factor=annual_factor,
         )
+
+        # Re-attach real calendar timestamps to the user-facing output series for
+        # reporting. 
+        timestamps = self.dataset.df.loc[
+            window_df.index, self.dataset.time_col
+        ].to_numpy()
+        strategy_returns.index = timestamps
+        capital.index = timestamps
+        market_returns.index = timestamps
 
         return {
             "strategy_returns": strategy_returns,
