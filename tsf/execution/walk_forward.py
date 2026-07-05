@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import warnings
-from typing import Optional
+from dataclasses import dataclass
+from typing import Iterator, Optional
 from pathlib import Path
 
 import pandas as pd
@@ -13,6 +14,36 @@ from tsf.data.scaler import FeatureScaler
 from tsf.data.window import WindowGenerator
 from tsf.models.base import BaseModel, DataFormat
 
+
+@dataclass(frozen=True)
+class FoldResult:
+    """
+    One fold's complete output 
+
+    Fields:
+        fold_preds          : predictions for the fold's test window, indexed
+                              by master-dataset integer row labels and
+                              inverse-transformed to raw label units
+        train_ds            : full (untrimmed) training window.  
+        test_ds             : test window (same in-place scaling caveat) -
+                              anchor ground truth on the master dataset,
+                              never on this object
+        fold_idx            : zero-based fold index within the schedule
+        val_loss            : best inner-validation loss or None when no live
+                              val block existed
+        val_active          : whether a live inner-validation block existed.
+        last_train_label_ts : timestamp of the last training row actually
+                              used after the embargo trim 
+    """
+    fold_preds: pd.DataFrame
+    train_ds: Dataset
+    test_ds: Dataset
+    fold_idx: int
+    val_loss: "float | None"
+    val_active: bool
+    last_train_label_ts: pd.Timestamp
+
+
 class WalkForwardEngine:
     """
     Walk-forward validation runner.
@@ -22,7 +53,7 @@ class WalkForwardEngine:
         window       : WindowGenerator producing train/test splits
         scaler       : FeatureScaler fit on each train fold, applied to both train and test (optional)
         reset_model  : whether to call model.reset() before each fold (default True)
-        lookback     : input steps for torch models; also controls lagged features for tabular models
+        lookback     : input steps for torch models
         horizon      : output steps to predict; should match WindowGenerator.test_window (default 24)
 
     Example:
@@ -50,7 +81,6 @@ class WalkForwardEngine:
         self.lookback = lookback
         self.horizon = horizon
         self.val_ratio = val_ratio
-        self._lagged_features_added = False
 
         # Test_window should match horizon
         self._validate_test_window_horizon()
@@ -71,37 +101,20 @@ class WalkForwardEngine:
         except Exception:
             pass  
 
-    # Auto-inject lagged features for tabular models
-    def _ensure_lagged_features(self) -> None:
+    # Tabular models require pre-injected lag features
+    def _require_lagged_features(self) -> None:
         """
-        If the model expects TABULAR data and the dataset does not
-        already contain log_return_lag_* columns, auto-inject
-        lagged log-return features using self.lookback as the lag count.
-
-        This gives sklearn models the lookback context that torch models
-        get from sequence windows.
+        TABULAR models get their lookback context from log_return_lag_*
+        columns.
         """
         if self.model.data_format != DataFormat.TABULAR:
             return
-        if self._lagged_features_added:
-            return
-
         ds = self.window.dataset
-        existing = [c for c in ds.feature_cols if c.startswith("log_return_lag_")]
-        if existing:
-            self._lagged_features_added = True
-            return
-
-        from tsf.data.feature_engineer import _REGISTRY
-        fn = _REGISTRY.get("LAGGED_RETURNS")
-        if fn is None:
-            raise RuntimeError(
-                "Feature engineer 'LAGGED_RETURNS' is not registered in _REGISTRY."
+        if not any(c.startswith("log_return_lag_") for c in ds.feature_cols):
+            raise ValueError(
+                "WalkForwardEngine: the model expects TABULAR data but the "
+                "dataset has no log_return_lag_* feature columns."
             )
-
-        fn(ds, lags=self.lookback)
-        ds.dropna(reset_index=False)
-        self._lagged_features_added = True
 
     # Embargo trimming
     def _trim_train(self, train_ds: Dataset) -> Dataset:
@@ -139,32 +152,23 @@ class WalkForwardEngine:
             return pd.DataFrame()
 
         all_predictions: list[pd.DataFrame] = []
-        for fold_preds, _, _, _, _ in self.run_fold_by_fold(verbose=verbose):
-            all_predictions.append(fold_preds)
+        for fr in self.iter_folds(verbose=verbose):
+            all_predictions.append(fr.fold_preds)
 
         return self._finalize(all_predictions)
 
 
-    def run_fold_by_fold(self, verbose: bool = False):
+    def iter_folds(self, verbose: bool = False) -> Iterator[FoldResult]:
         """
-        Generator that yields
-        ``(fold_preds, train_ds, test_ds, fold_idx, fold_val_loss)``
-        per fold, allowing interleaved RL training between folds.
-
-        Yields:
-            fold_preds    : pd.DataFrame   - predictions for this test window
-            train_ds      : Dataset        - full (unscaled) training window
-            test_ds       : Dataset        - test window (scaled if scaler set)
-            fold_idx      : int            - zero-based fold index
-            fold_val_loss : float | None   - best inner-val loss from training
-                                             (None for tabular models or when
-                                             the val split is too small)
+        Fold generator for the uniform per-fold pipeline that 
+        yields one `FoldResult` per fold
         """
-        self._ensure_lagged_features()
+        self._require_lagged_features()
         splits = list(self.window.get_splits())
 
         for fold_idx, (train_ds, test_ds) in enumerate(splits):
             trimmed_ds = self._trim_train(train_ds)
+            last_train_label_ts = trimmed_ds.df[trimmed_ds.time_col].iloc[-1]
 
             if verbose:
                 print(
@@ -183,14 +187,21 @@ class WalkForwardEngine:
                 self.scaler.transform(test_ds)
                 self.scaler.transform(train_ds)
 
-            fold_preds, fold_val_loss = self._dispatch_fold(
+            fold_preds, fold_val_loss, val_active = self._dispatch_fold(
                 trimmed_ds, test_ds, fold_idx,
                 train=True,
                 full_train_ds=train_ds,
             )
 
-            yield fold_preds, train_ds, test_ds, fold_idx, fold_val_loss
-
+            yield FoldResult(
+                fold_preds=fold_preds,
+                train_ds=train_ds,
+                test_ds=test_ds,
+                fold_idx=fold_idx,
+                val_loss=fold_val_loss,
+                val_active=val_active,
+                last_train_label_ts=last_train_label_ts,
+            )
 
     # Fold dispatch helpers
     def _dispatch_fold(
@@ -201,7 +212,7 @@ class WalkForwardEngine:
         *,
         train: bool,
         full_train_ds: Optional[Dataset] = None,
-    ) -> "tuple[pd.DataFrame, float | None]":
+    ) -> "tuple[pd.DataFrame, float | None, bool]":
         """Route to the appropriate fold handler based on data format."""
         if self.model.data_format == DataFormat.TABULAR:
             return self._run_tabular_fold(
@@ -226,7 +237,7 @@ class WalkForwardEngine:
         fold_idx: int,
         *,
         train: bool = True,
-    ) -> "tuple[pd.DataFrame, float | None]":
+    ) -> "tuple[pd.DataFrame, float | None, bool]":
         """
         Optionally train via _train_model(), then predict.
 
@@ -236,8 +247,9 @@ class WalkForwardEngine:
         [log(P_{t+1}/P_t), ..., log(P_{t+``horizon``}/P_{t+})].
         """
         val_loss: "float | None" = None
+        val_active = False
         if train:
-            val_loss = self._train_model(train_ds, fold_idx)
+            val_loss, val_active = self._train_model(train_ds, fold_idx)
 
         X_test = test_ds.get_features().iloc[[0]]  # single row
         if self.model.input_columns:
@@ -255,7 +267,7 @@ class WalkForwardEngine:
             ).flatten()
         test_index = test_ds.df.index[: self.horizon]
         fold_preds = pd.DataFrame(preds_flat, index=test_index, columns=["prediction"])
-        return fold_preds, val_loss
+        return fold_preds, val_loss, val_active
 
     # Torch fold                                    
     def _run_torch_fold(
@@ -266,7 +278,7 @@ class WalkForwardEngine:
         *,
         train: bool = True,
         full_train_ds: Optional[Dataset] = None,
-    ) -> "tuple[pd.DataFrame, float | None]":
+    ) -> "tuple[pd.DataFrame, float | None, bool]":
         """
         Sequence-based training and single-shot prediction for deep
         learning time-series models.
@@ -292,8 +304,9 @@ class WalkForwardEngine:
             )
 
         val_loss: "float | None" = None
+        val_active = False
         if train:
-            val_loss = self._train_model(train_ds, fold_idx)
+            val_loss, val_active = self._train_model(train_ds, fold_idx)
 
         # Prediction phase - use full (untrimmed) training tail
         pred_source = full_train_ds if full_train_ds is not None else train_ds
@@ -321,10 +334,18 @@ class WalkForwardEngine:
 
         test_index = test_ds.df.index[: self.horizon]
         fold_preds = pd.DataFrame(raw_preds, index=test_index, columns=col_names)
-        return fold_preds, val_loss
+        return fold_preds, val_loss, val_active
 
-    def _train_model(self, train_ds: Dataset, fold_idx: int) -> "float | None":
-        """Train the model on a training dataset (format-aware)."""
+    def _train_model(
+        self, train_ds: Dataset, fold_idx: int
+    ) -> "tuple[float | None, bool]":
+        """
+        Train the model on a training dataset.
+
+        Returns `(val_loss, val_active)`: `val_active` is True only when
+        a live inner-validation block was formed.  `False` means no early 
+        stopping and no best-weight restoration happened for this fold.
+        """
         if self.model.data_format == DataFormat.TABULAR:
             X_train = train_ds.get_features()
             y_train = train_ds.get_labels()
@@ -342,9 +363,9 @@ class WalkForwardEngine:
             X_train = X_train.iloc[:valid]
             y_mat = np.stack(
                 [y_arr[i : i + self.horizon] for i in range(valid)], axis=0
-            )  
+            )
             self.model.fit(X_train, y_mat)
-            return None
+            return None, False
         elif self.model.data_format == DataFormat.TORCH_LOADER:
             if self.lookback <= 0 or self.horizon <= 0:
                 raise ValueError(
@@ -355,16 +376,13 @@ class WalkForwardEngine:
 
             # Inner train / val split
             n = len(train_ds)
-            boundary = int(n * (1 - self.val_ratio))
             min_window = self.lookback + self.horizon
-            inner_train_ds = train_ds.slice_by_index(0, boundary)
-            inner_val_ds = train_ds.slice_by_index(boundary, n)
 
-            if len(inner_train_ds) < min_window or len(inner_val_ds) < min_window:
+            if n < 2 * min_window:
                 warnings.warn(
-                    f"Fold {fold_idx + 1}: inner train ({len(inner_train_ds)}) or "
-                    f"val ({len(inner_val_ds)}) slice is smaller than one sequence "
-                    f"window ({min_window}).  Falling back to no val split.",
+                    f"Fold {fold_idx + 1}: training window ({n} rows) is smaller "
+                    f"than two sequence windows (2*(lookback+horizon)="
+                    f"{2 * min_window}), cannot form an inner validation split.",
                     UserWarning,
                     stacklevel=3,
                 )
@@ -375,7 +393,16 @@ class WalkForwardEngine:
                     shuffle=True,
                 )
                 self.model.fit(train_loader)
-                return None
+                return None, False
+
+            # Clamp val_size into [min_window, n - min_window] so that both the
+            # inner-train and inner-val slices hold at least one sequence window.
+            val_size = int(n * self.val_ratio)
+            val_size = max(val_size, min_window)
+            val_size = min(val_size, n - min_window)
+            boundary = n - val_size
+            inner_train_ds = train_ds.slice_by_index(0, boundary)
+            inner_val_ds = train_ds.slice_by_index(boundary, n)
 
             train_loader = inner_train_ds.get_sequence_loader(
                 lookback=self.lookback,
@@ -389,7 +416,7 @@ class WalkForwardEngine:
                 batch_size=batch_size,
                 shuffle=False,
             )
-            return self.model.fit(train_loader, val_loader=val_loader)
+            return self.model.fit(train_loader, val_loader=val_loader), True
 
     @staticmethod
     def _finalize(all_predictions: list[pd.DataFrame]) -> pd.DataFrame:

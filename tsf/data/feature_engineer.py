@@ -137,6 +137,19 @@ def _lagged_returns(ds: Dataset, column: str = "close", lags: int = 336, **_kw) 
         ds.add_features(log_ret.shift(lag).rename(f"log_return_lag_{lag}"))
 
 
+def add_lagged_returns(dataset: Dataset, lags: int, column: str = "close") -> None:
+    """
+    Explicit lagged-return feature step for TABULAR (sklearn) models 
+    """
+    fn = _REGISTRY.get("LAGGED_RETURNS")
+    if fn is None:
+        raise RuntimeError(
+            "Feature engineer 'LAGGED_RETURNS' is not registered in _REGISTRY."
+        )
+    fn(dataset, lags=lags, column=column)
+    dataset.dropna(reset_index=False)
+
+
 # Canonical shared feature set for all the models
 DEFAULT_FEATURE_SET: List[Dict[str, Any]] = [
     {"name": "LOG_RETURN_1"},
